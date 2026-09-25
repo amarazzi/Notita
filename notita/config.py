@@ -21,6 +21,9 @@ TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN", "")
 # Secreto que Telegram manda en el header X-Telegram-Bot-Api-Secret-Token.
 TELEGRAM_WEBHOOK_SECRET = os.getenv("TELEGRAM_WEBHOOK_SECRET", "")
 ALLOWED_CHAT_ID = int(os.getenv("ALLOWED_CHAT_ID", "0") or 0)
+# Clave para /cron/recordatorios (la llama un cron externo, ej. cron-job.org).
+# Si está vacía, esa ruta queda apagada.
+CRON_SECRET = os.getenv("CRON_SECRET", "")
 
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
 GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
