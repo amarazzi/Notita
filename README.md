@@ -104,18 +104,23 @@ El modelo por defecto es `gemini-2.5-flash`.
 
 ### 6. Deploy en PythonAnywhere (gratis)
 
+> Usá siempre la **misma versión de Python** en la consola, en la web app y en la
+> tarea diaria. En las cuentas nuevas (system image `innit`) hay 3.11, 3.12 y 3.13;
+> en las viejas puede ser 3.10. Chequealo con `ls /usr/bin/python3.*`.
+> Acá se asume **3.13**.
+
 ```bash
 # En una consola Bash de PythonAnywhere
 git clone <tu-repo> ~/Notita
 cd ~/Notita
-pip3.10 install --user -r requirements.txt
+pip3.13 install --user -r requirements.txt
 cp .env.example .env
 nano .env     # completá token, chat_id, user_ids y la API key
 ```
 
 **Web app:**
 
-1. *Web* → **Add a new web app** → **Manual configuration** → Python 3.10.
+1. *Web* → **Add a new web app** → **Manual configuration** → Python 3.13.
 2. Editá el archivo WSGI (`/var/www/USUARIO_pythonanywhere_com_wsgi.py`) y dejalo así:
 
 ```python
@@ -134,8 +139,8 @@ from app import app as application  # noqa
 
 ```bash
 cd ~/Notita
-python3.10 set_webhook.py https://USUARIO.pythonanywhere.com/telegram
-python3.10 set_webhook.py --info   # para chequear
+python3.13 set_webhook.py https://USUARIO.pythonanywhere.com/telegram
+python3.13 set_webhook.py --info   # para chequear
 ```
 
 **Tarea diaria de las 20:00** (*Tasks* → Daily task).
@@ -148,7 +153,7 @@ PythonAnywhere programa en **UTC** y Argentina es UTC−3 todo el año, así que
 Comando:
 
 ```
-python3.10 /home/USUARIO/Notita/run_reminders.py
+python3.13 /home/USUARIO/Notita/run_reminders.py
 ```
 
 > Las cuentas gratuitas permiten **una** tarea diaria: por eso los recordatorios de
