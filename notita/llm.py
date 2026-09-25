@@ -91,6 +91,10 @@ Reglas:
   ("Barbu tiene que llamar al veterinario"), "ambos" si es de los dos,
   "ninguno" si no se menciona. No adivines.
 - categoria: limpieza, arreglos, tramites, pagos, mascotas, compras u otros.
+  * pagos: SOLO si hay que pagar plata (facturas, expensas, alquiler, impuestos).
+  * tramites: gestiones, papeles, turnos, renovar cuentas o servicios sin pagar.
+  * arreglos: reparar o instalar cosas en la casa. limpieza: limpiar u ordenar.
+  * mascotas: todo lo del gato Milo. otros: lo que no encaje en ninguna.
 - fecha_kind: elegí la INTENCIÓN, no calcules la fecha. Nunca devuelvas una fecha calculada.
   * "el lunes" -> dia_semana con fecha_weekday=0
   * "el lunes de la semana que viene" -> dia_semana_prox
@@ -127,7 +131,8 @@ def _call(prompt: str, schema: dict, sistema: str) -> dict | None:
             "temperature": 0.2,
             "responseMimeType": "application/json",
             "responseSchema": schema,
-            "thinkingConfig": {"thinkingBudget": 0},
+            # Ojo: con "thinkingBudget": 0, gemini-2.5-flash rompe las tildes en JSON
+            # ("cómoda" -> "c\\nmoda"). Por eso dejamos que piense lo que necesite.
         },
     }
     url = ENDPOINT.format(model=config.GEMINI_MODEL)

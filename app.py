@@ -43,16 +43,12 @@ def webhook():
 
 @app.route("/cron/recordatorios", methods=["GET", "POST"])
 def cron_recordatorios():
-    """Dispara la rutina de las 20:00. La llama un cron externo (cron-job.org).
-
-    La clave va en el header X-Cron-Secret (o en ?clave=... si el servicio no deja
-    poner headers). Llamarla dos veces el mismo día no repite recordatorios.
-    """
+    """Dispara la rutina de las 20:00. La llama un cron externo (cron-job.org)."""
     if not config.CRON_SECRET:
         return jsonify(ok=False, error="cron apagado"), 404
     recibido = request.headers.get("X-Cron-Secret") or request.args.get("clave", "")
     if not hmac.compare_digest(recibido, config.CRON_SECRET):
-        log.warning("Cron con clave inválida")
+        log.warning("Cron con clave invalida")
         return jsonify(ok=False), 403
     return jsonify(ok=True, resultado=correr_rutina_diaria())
 

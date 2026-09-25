@@ -195,15 +195,30 @@ def test_todo_ordena_vencidas_fecha_y_algun_dia(enviados):
     db.crear_tarea(CHAT, "pintar el balcón", categoria="arreglos")
     db.crear_tarea(CHAT, "leche", tipo="compras", categoria="compras")
 
+    db.crear_tarea(CHAT, "renovar el dni", categoria="tramites", due=hoy() + timedelta(days=20))
+    db.crear_tarea(CHAT, "regar", categoria="otros", due=hoy() + timedelta(days=3))
+    db.crear_tarea(CHAT, "sacar la basura", categoria="limpieza", due=hoy())
+
     texto = views.render_todo(CHAT)
-    assert texto.index("Vencidas") < texto.index("Con fecha") < texto.index("Algún día") \
-        < texto.index("Super")
+    orden = ["VENCIDAS", "HOY", "MAÑANA", "ESTA SEMANA", "MÁS ADELANTE", "ALGÚN DÍA", "SÚPER"]
+    posiciones = [texto.index(s) for s in orden]
+    assert posiciones == sorted(posiciones)
+    # Nada plegado: todo visible sin tocar flechitas.
+    assert "blockquote" not in texto
+    assert "Pintar el balcón" in texto  # con mayúscula
+
+
+def test_texto_con_saltos_de_linea_se_muestra_en_una_sola_linea(enviados):
+    db.crear_tarea(CHAT, "hacer el tr\n\namite del DNI", categoria="tramites", due=hoy())
+    texto = views.render_todo(CHAT)
+    assert "Hacer el tr amite del DNI" in texto
+    assert "tr\n" not in texto
 
 
 def test_todo_filtra_por_categoria(enviados):
     db.crear_tarea(CHAT, "limpiar el baño", categoria="limpieza", due=hoy())
     db.crear_tarea(CHAT, "pagar la luz", categoria="pagos", due=hoy())
-    texto = views.render_todo(CHAT, categoria="limpieza")
+    texto = views.render_todo(CHAT, categoria="limpieza").lower()
     assert "limpiar el baño" in texto and "pagar la luz" not in texto
 
 
@@ -237,7 +252,17 @@ def test_domingo_manda_resumen_en_el_mismo_envio(enviados):
     res = reminders.correr_rutina_diaria(ref=domingo)
     assert res["resumen"] is True
     assert res["recordatorios"] == 1
-    resumen = textos(enviados)[0]
-    assert "Resumen de la semana" in resumen
+    resumen = textos(enviados)[0].lower()
+    assert "resumen de la semana" in resumen
     assert "pagar expensas" in resumen          # vence en la semana que arranca
     assert "1 para «algún día»" in resumen
+
+
+def test_confirmacion_usa_el_mismo_formato_que_la_lista(enviados):
+    from notita import views
+    t = db.crear_tarea(CHAT, "comprar la cómoda", tipo="compras", categoria="compras",
+                       responsable="ambos")
+    assert views.confirmacion(db.obtener(t), hoy()) == "🛒 Comprar la cómoda · <i>al súper</i> · los dos"
+    t = db.crear_tarea(CHAT, "hacer el trámite del DNI", categoria="tramites",
+                       responsable="axel", due=hoy() + timedelta(days=1))
+    assert views.confirmacion(db.obtener(t), hoy()) == "📄 Hacer el trámite del DNI · <i>mañana</i> · Axel"

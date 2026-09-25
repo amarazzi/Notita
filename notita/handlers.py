@@ -227,7 +227,7 @@ def _responder_fecha_libre(chat_id: int, pendiente: dict, texto: str) -> bool:
 def _fijar_fecha(chat_id: int, task_id: int, due: date | None, message_id: int | None = None) -> None:
     db.actualizar(task_id, due_date=due.isoformat() if due else None)
     row = db.obtener(task_id)
-    texto = f"Listo: {views.confirmacion(row, hoy())}"
+    texto = f"Listo 🤍\n{views.confirmacion(row, hoy())}"
     if message_id:
         telegram.editar(chat_id, message_id, texto)
     else:

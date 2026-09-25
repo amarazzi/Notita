@@ -80,7 +80,7 @@ def crear_tarea(
                                   created_by, created_at)
                VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
             (
-                chat_id, texto.strip(), tipo, categoria, responsable, iso(due),
+                chat_id, " ".join(texto.split()), tipo, categoria, responsable, iso(due),
                 recurrencia.kind if recurrencia else None,
                 recurrencia.interval if recurrencia else 1,
                 recurrencia.weekday if recurrencia else None,

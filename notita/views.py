@@ -74,41 +74,78 @@ def sufijo_responsable(row: sqlite3.Row, con_mencion: bool = False) -> str:
     return f" · {mencion(r) if con_mencion else escapar(config.NOMBRES[r])}"
 
 
-def linea_tarea(row: sqlite3.Row, ref: date, mostrar_fecha: bool = True) -> str:
-    texto = f"{emoji(row)} {escapar(row['texto'])}"
+def texto_tarea(row: sqlite3.Row) -> str:
+    """Texto de la tarea limpio para mostrar: sin saltos de línea raros y con mayúscula."""
+    t = " ".join((row["texto"] or "").split())
+    return escapar(t[:1].upper() + t[1:])
+
+
+def linea_tarea(row: sqlite3.Row, ref: date, mostrar_fecha: bool = True,
+                fecha_txt: str | None = None) -> str:
+    """Una tarea por línea: emoji de categoría, texto, y los detalles detrás de «·»."""
+    partes = [f"{emoji(row)} {texto_tarea(row)}"]
     d = de_iso(row["due_date"])
     if mostrar_fecha and d:
-        texto += f" — {formato_humano(d, ref)}"
-    texto += sufijo_responsable(row)
-    if row["postpone_count"] >= 3:
-        texto += f" 😅 x{row['postpone_count']}"
+        partes.append(f"<i>{fecha_txt or formato_humano(d, ref)}</i>")
+    resp = sufijo_responsable(row).removeprefix(" · ")
+    if resp:
+        partes.append(resp)
+    linea = " · ".join(partes)
     if row["recur_kind"]:
-        texto += " 🔁"
-    return texto
+        linea += " 🔁"
+    if row["postpone_count"] >= 3:
+        linea += f" 😅×{row['postpone_count']}"
+    return linea
 
 
 def confirmacion(row: sqlite3.Row, ref: date) -> str:
-    d = de_iso(row["due_date"])
-    partes = [f"{emoji(row)} <b>{escapar(row['texto'])}</b>"]
-    if row["tipo"] == "compras":
-        partes.append("a la lista del super")
-    else:
-        partes.append(f"para {formato_humano(d, ref)}")
-    r = row["responsable"]
-    if r == "ambos":
-        partes.append("los dos")
-    elif r != "ninguno":
-        partes.append(escapar(config.NOMBRES[r]))
+    """Misma línea que en /tareas, pero siempre dice para cuándo (o que va al súper)."""
+    cuando = "al súper" if row["tipo"] == "compras" else formato_humano(de_iso(row["due_date"]), ref)
+    partes = [f"{emoji(row)} {texto_tarea(row)}", f"<i>{cuando}</i>"]
+    resp = sufijo_responsable(row).removeprefix(" · ")
+    if resp:
+        partes.append(resp)
+    linea = " · ".join(partes)
     if row["recur_kind"]:
-        partes.append("🔁")
-    return " · ".join(partes)
+        linea += " 🔁"
+    return linea
 
 
 # --------------------------------------------------------------------------
 # Listados
 # --------------------------------------------------------------------------
 
+DIAS_CORTO = ["lun", "mar", "mié", "jue", "vie", "sáb", "dom"]
+
+
+def _dia_corto(d: date, con_mes: bool = False) -> str:
+    base = f"{DIAS_CORTO[d.weekday()].capitalize()} {d.day}"
+    return f"{base}/{d.month}" if con_mes else base
+
+
+def _por_dia(rows, con_mes: bool, ref: date) -> list[str]:
+    """Agrupa tareas bajo un subtítulo por día (ej. «Dom 27»)."""
+    lineas: list[str] = []
+    dia_actual = None
+    for r in rows:
+        d = de_iso(r["due_date"])
+        if d != dia_actual:
+            if dia_actual is not None:
+                lineas.append("")  # un renglón vacío entre días
+            dia_actual = d
+            lineas.append(f"<b>{_dia_corto(d, con_mes)}</b>")
+        lineas.append(linea_tarea(r, ref, mostrar_fecha=False))
+    return lineas
+
+
 def render_todo(chat_id: int, categoria: str | None = None, ref: date | None = None) -> str:
+    """Lista de pendientes pensada para el celular.
+
+    Agrupa por horizonte de tiempo (como Todoist o Things): primero lo urgente
+    con un subtítulo por día, y lo lejano o sin fecha compacto, una línea por tarea.
+    """
+    from datetime import timedelta
+
     ref = ref or hoy()
     casa = db.pendientes(chat_id, tipo="casa", categoria=categoria)
     compras = db.pendientes(chat_id, tipo="compras") if not categoria or categoria == "compras" else []
@@ -118,35 +155,42 @@ def render_todo(chat_id: int, categoria: str | None = None, ref: date | None = N
             return f"No hay nada pendiente de <b>{escapar(categoria)}</b> ✨"
         return "No hay nada pendiente. Qué lujo ✨"
 
-    vencidas = [r for r in casa if de_iso(r["due_date"]) and de_iso(r["due_date"]) < ref]
-    con_fecha = [r for r in casa if de_iso(r["due_date"]) and de_iso(r["due_date"]) >= ref]
-    algun_dia = [r for r in casa if not r["due_date"]]
+    def fecha(r):
+        return de_iso(r["due_date"])
 
-    bloques: list[str] = []
-    titulo = "📋 <b>Pendientes</b>" + (f" · {escapar(categoria)}" if categoria else "")
-    bloques.append(titulo)
+    manana = ref + timedelta(days=1)
+    fin_semana = ref + timedelta(days=6)
+    vencidas = [r for r in casa if fecha(r) and fecha(r) < ref]
+    de_hoy = [r for r in casa if fecha(r) == ref]
+    de_manana = [r for r in casa if fecha(r) == manana]
+    semana = [r for r in casa if fecha(r) and manana < fecha(r) <= fin_semana]
+    despues = [r for r in casa if fecha(r) and fecha(r) > fin_semana]
+    algun_dia = [r for r in casa if not fecha(r)]
+
+    titulo = "<b>Pendientes</b>" + (f" · {escapar(categoria)}" if categoria else "")
+    bloques: list[str] = [f"{titulo} · {len(casa)}"]
 
     if vencidas:
-        bloques.append("\n⚠️ <b>Vencidas</b>\n" + "\n".join(linea_tarea(r, ref) for r in vencidas))
-
-    if con_fecha:
-        lineas = []
-        dia_actual = None
-        for r in con_fecha:
-            d = de_iso(r["due_date"])
-            if d != dia_actual:
-                dia_actual = d
-                lineas.append(f"<b>{formato_dia(d)}</b>")
-            lineas.append("  " + linea_tarea(r, ref, mostrar_fecha=False))
-        bloques.append("\n🗓️ <b>Con fecha</b>\n" + "\n".join(lineas))
-
+        bloques.append("⚠️ <b>VENCIDAS</b>\n" + "\n".join(linea_tarea(r, ref) for r in vencidas))
+    if de_hoy:
+        bloques.append(f"<b>HOY</b> · {_dia_corto(ref)}\n"
+                       + "\n".join(linea_tarea(r, ref, mostrar_fecha=False) for r in de_hoy))
+    if de_manana:
+        bloques.append(f"<b>MAÑANA</b> · {_dia_corto(manana)}\n"
+                       + "\n".join(linea_tarea(r, ref, mostrar_fecha=False) for r in de_manana))
+    if semana:
+        bloques.append("<b>ESTA SEMANA</b>\n\n" + "\n".join(_por_dia(semana, False, ref)))
+    if despues:
+        # Lo lejano va compacto: una línea por tarea con la fecha al lado, sin subtítulos.
+        bloques.append("<b>MÁS ADELANTE</b>\n" + "\n".join(
+            linea_tarea(r, ref, fecha_txt=_dia_corto(fecha(r), True).lower()) for r in despues))
     if algun_dia:
-        bloques.append("\n🌥️ <b>Algún día</b>\n" + "\n".join(linea_tarea(r, ref) for r in algun_dia))
-
+        bloques.append("<b>ALGÚN DÍA</b>\n" + "\n".join(linea_tarea(r, ref) for r in algun_dia))
     if compras:
-        bloques.append("\n🛒 <b>Super</b>\n" + "\n".join(f"• {escapar(r['texto'])}" for r in compras))
+        items = ", ".join(escapar(" ".join(r["texto"].split())) for r in compras)
+        bloques.append(f"<b>SÚPER</b> · {len(compras)}\n{items}\n<i>Tocá /super para tacharlos</i>")
 
-    return "\n".join(bloques)
+    return "\n\n".join(bloques)
 
 
 def render_algun_dia(chat_id: int, ref: date | None = None) -> str:

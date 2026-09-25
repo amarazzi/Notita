@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+import time
 
 import requests
 
@@ -10,6 +11,8 @@ from . import config
 log = logging.getLogger("notita.telegram")
 API = "https://api.telegram.org/bot{token}/{method}"
 TIMEOUT = 20
+INTENTOS = 3
+ESPERA = 1  # segundos (1, despues 2)
 
 
 def llamar(metodo: str, **payload) -> dict | None:
@@ -17,16 +20,26 @@ def llamar(metodo: str, **payload) -> dict | None:
         log.error("Falta TELEGRAM_TOKEN")
         return None
     url = API.format(token=config.TELEGRAM_TOKEN, method=metodo)
-    try:
-        r = requests.post(url, json=payload, timeout=TIMEOUT)
-        data = r.json()
-        if not data.get("ok"):
-            log.error("Telegram %s falló: %s", metodo, data)
+    for intento in range(1, INTENTOS + 1):
+        try:
+            r = requests.post(url, json=payload, timeout=TIMEOUT)
+            data = r.json()
+            if not data.get("ok"):
+                log.error("Telegram %s falló: %s", metodo, data)
+                return None
+            return data.get("result")
+        except requests.exceptions.ConnectionError as e:
+            # El proxy de PythonAnywhere (cuentas gratis) a veces falla un instante: reintentamos.
+            # Logueamos solo el tipo de error, asi el token (que va en la URL) no queda en los logs.
+            log.warning("Telegram %s: error de conexion (%s), intento %d/%d",
+                        metodo, type(e).__name__, intento, INTENTOS)
+            if intento < INTENTOS:
+                time.sleep(ESPERA * intento)
+        except Exception as e:
+            log.error("Error llamando a Telegram %s: %s", metodo, type(e).__name__)
             return None
-        return data.get("result")
-    except Exception:
-        log.exception("Error llamando a Telegram %s", metodo)
-        return None
+    log.error("Telegram %s: sin conexion despues de %d intentos", metodo, INTENTOS)
+    return None
 
 
 def enviar(chat_id: int, texto: str, teclado: list | None = None,
