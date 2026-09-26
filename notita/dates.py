@@ -174,6 +174,19 @@ def normalizar(texto: str) -> str:
     return re.sub(r"\s+", " ", t).strip(" .!¡?¿,")
 
 
+_ACENTOS = str.maketrans("áàäâãéèëêíìïîóòöôõúùüûýñç", "aaaaaeeeeiiiiooooouuuuync")
+
+
+def aplanar(texto: str) -> str:
+    """Como `normalizar` pero SIN cambiar la longitud del texto.
+
+    Sirve para buscar expresiones dentro de una frase y después poder recortar
+    el original usando las mismas posiciones.
+    """
+    t = texto.lower().translate(_ACENTOS)
+    return t if len(t) == len(texto) else texto.lower()
+
+
 _NUMEROS = {
     "un": 1, "una": 1, "uno": 1, "dos": 2, "tres": 3, "cuatro": 4, "cinco": 5,
     "seis": 6, "siete": 7, "ocho": 8, "nueve": 9, "diez": 10, "quince": 15,
@@ -267,6 +280,97 @@ class Recurrencia:
     interval: int = 1
     weekday: int | None = None
     monthday: int | None = None
+
+
+def _numero(txt: str) -> int:
+    return int(txt) if txt.isdigit() else _NUMEROS.get(txt, 1)
+
+
+def _recortar(texto: str, span: tuple[int, int]) -> str:
+    """Saca un pedazo del texto y deja el resto prolijo."""
+    resto = texto[: span[0]] + " " + texto[span[1]:]
+    return re.sub(r"\s+", " ", resto).strip(" ,.;:-")
+
+
+# Cada entrada: (regex, función que arma la DateSpec con el match).
+# El orden importa: lo más específico primero, para consumir la frase completa.
+_PATRONES_FECHA: list[tuple[str, object]] = [
+    (r"\b(?:algun dia|alguna vez|cuando se pueda|cuando pueda|en algun momento)\b",
+     lambda m: DateSpec("algun_dia")),
+    (r"\bpasado manana\b", lambda m: DateSpec("pasado")),
+    (r"\bmanana\b", lambda m: DateSpec("manana")),
+    (r"\bhoy\b", lambda m: DateSpec("hoy")),
+    # "el lunes", "el lunes que viene", "el lunes de la semana que viene"
+    (rf"\b(?:el |los |este |para el )?({_RE_DIA_SEMANA})\b"
+     r"(?:\s+(?:de\s+)?(?:la\s+)?semana\s+(?:que viene|proxima))?",
+     lambda m: DateSpec("dia_semana_prox" if "semana" in m.group(0) else "dia_semana",
+                        weekday=DIAS_SEMANA[m.group(1)])),
+    (r"\b(?:el )?(?:fin de semana|finde)\b", lambda m: DateSpec("fin_de_semana")),
+    (r"\besta semana\b", lambda m: DateSpec("esta_semana")),
+    (r"\b(?:la )?(?:semana que viene|proxima semana|semana proxima)\b",
+     lambda m: DateSpec("semana_que_viene")),
+    (rf"\ben (\d+|{'|'.join(_NUMEROS)}) (dias?|semanas?|mes|meses)\b",
+     lambda m: DateSpec("en_dias", days=_numero(m.group(1)) *
+                        (7 if m.group(2).startswith("semana") else
+                         30 if m.group(2).startswith("mes") else 1))),
+    (rf"\b(?:el )?(\d{{1,2}}) de ({_RE_MES})(?: de (\d{{4}}))?\b",
+     lambda m: DateSpec("fecha_exacta", day=int(m.group(1)), month=MESES[m.group(2)],
+                        year=int(m.group(3)) if m.group(3) else None)),
+    (r"\b(?:el )?(\d{1,2})[/-](\d{1,2})(?:[/-](\d{2,4}))?\b",
+     lambda m: DateSpec("fecha_exacta", day=int(m.group(1)), month=int(m.group(2)),
+                        year=_anio(m.group(3)))),
+    # "el 10" suelto: pedimos el "el" para no agarrar cualquier número de la frase.
+    (r"\bel (\d{1,2})\b", lambda m: DateSpec("dia_del_mes", day=int(m.group(1)))),
+]
+
+_PATRONES_RECURRENCIA: list[tuple[str, object]] = [
+    (r"\b(?:todos los dias|cada dia|a diario|diariamente)\b",
+     lambda m: Recurrencia("diaria")),
+    (rf"\bcada (\d+|{'|'.join(_NUMEROS)}) dias\b",
+     lambda m: Recurrencia("diaria", interval=_numero(m.group(1)))),
+    (rf"\b(?:todos los|cada) ({_RE_DIA_SEMANA})\b",
+     lambda m: Recurrencia("semanal", weekday=DIAS_SEMANA[m.group(1)])),
+    (r"\b(?:todas las semanas|cada semana|semanalmente)\b",
+     lambda m: Recurrencia("semanal")),
+    (rf"\bcada (\d+|{'|'.join(_NUMEROS)}) semanas\b",
+     lambda m: Recurrencia("semanal", interval=_numero(m.group(1)))),
+    (r"\b(?:todos los meses|cada mes|mensualmente)\b",
+     lambda m: Recurrencia("mensual")),
+    (rf"\bcada (\d+|{'|'.join(_NUMEROS)}) meses\b",
+     lambda m: Recurrencia("mensual", interval=_numero(m.group(1)))),
+    # "pagar expensas todos los 10"
+    (r"\b(?:todos los|cada) (\d{1,2})\b",
+     lambda m: Recurrencia("mensual", monthday=int(m.group(1)))),
+    (r"\b(?:todos los anos|cada ano|anualmente)\b", lambda m: Recurrencia("anual")),
+]
+
+
+def _anio(txt: str | None) -> int | None:
+    if not txt:
+        return None
+    return int("20" + txt) if len(txt) == 2 else int(txt)
+
+
+def _extraer(texto: str, patrones: list) -> tuple[object | None, str]:
+    """Busca el primer patrón que matchee y devuelve (lo encontrado, texto sin eso)."""
+    plano = aplanar(texto)
+    for patron, armar in patrones:
+        m = re.search(patron, plano)
+        if m:
+            return armar(m), _recortar(texto, m.span())
+    return None, texto
+
+
+def extraer_fecha(texto: str) -> tuple[DateSpec | None, str]:
+    """Saca la expresión de fecha de una frase: «regar el lunes» -> (lunes, 'regar')."""
+    spec, resto = _extraer(texto, _PATRONES_FECHA)
+    return spec, resto
+
+
+def extraer_recurrencia(texto: str) -> tuple[Recurrencia | None, str]:
+    """«cambiar las piedritas cada semana» -> (semanal, 'cambiar las piedritas')."""
+    rec, resto = _extraer(texto, _PATRONES_RECURRENCIA)
+    return rec, resto
 
 
 def _sumar_meses(year: int, month: int, n: int) -> tuple[int, int]:

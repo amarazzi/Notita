@@ -5,7 +5,7 @@ import logging
 import random
 from datetime import date, timedelta
 
-from . import config, db, llm, telegram, views
+from . import config, db, heuristica, llm, telegram, views
 from .dates import (
     DateSpec,
     de_iso,
@@ -127,13 +127,12 @@ def _match_categoria(arg: str) -> str | None:
 def _interpretar_y_guardar(chat_id: int, texto: str, autor: str,
                            contexto_previo: str | None = None) -> None:
     ref = hoy()
-    data = llm.interpretar_mensaje(texto, autor, ref, contexto_previo)
+    data = llm.interpretar_mensaje(texto, autor, ref, contexto_previo) if llm.disponible() else None
 
-    if data is None:  # el LLM no contestó: guardamos crudo y preguntamos la fecha
-        task_id = db.crear_tarea(chat_id, texto, created_by=autor)
-        telegram.enviar(chat_id, "Se me trabó la cabeza un segundo, pero lo anoté igual 🤍")
-        _preguntar_fecha(chat_id, task_id)
-        return
+    # Sin Gemini configurado, o si no contestó, lo interpretamos acá nomás.
+    # Peor que el LLM, pero la tarea nunca se pierde.
+    if data is None:
+        data = heuristica.interpretar(texto)
 
     items = data.get("items") or []
     if not data.get("es_tarea") or not items:
@@ -181,6 +180,9 @@ def _interpretar_y_guardar(chat_id: int, texto: str, autor: str,
             sin_fecha.append(task_id)
 
     encabezado = "Anotado 🤍" if len(confirmaciones) == 1 else f"Anoté {len(confirmaciones)} cositas 🤍"
+    # Si Gemini estaba configurado pero no contestó, avisamos que lo leímos a mano.
+    if data.get("local") and llm.disponible():
+        encabezado = "Lo anoté a mano, no me salió pensar 🤍 revisá que esté bien:"
     telegram.enviar(chat_id, encabezado + "\n" + "\n".join(confirmaciones))
 
     for task_id in sin_fecha:

@@ -202,11 +202,17 @@ def paso_grupo_y_personas(token: str, usuario_bot: str) -> tuple[int, tuple[Pers
 def paso_gemini(personas: tuple[Persona, ...]) -> tuple[str, str]:
     titulo(3, "La API key de Gemini")
     dato("Sacala gratis en https://aistudio.google.com/apikey (no pide tarjeta).")
+    dato("Es lo que le da la inteligencia: separa varias tareas de una frase,")
+    dato("entiende fechas escritas de cualquier forma y elige categoría y responsable.")
+    dato("Si preferís no mandarle nada a Google, dejalo vacío: Notita funciona igual,")
+    dato("interpretando todo con reglas locales (más boba, pero 100% en tu servidor).")
     model = "gemini-2.5-flash"
     while True:
-        key = preguntar("API key de Google AI Studio")
+        key = preguntar("API key de Google AI Studio (Enter = modo local)")
         if not key:
-            mal("Sin esto Notita no entiende lo que le escriben.")
+            aviso("Modo local: sin separar tareas en lote ni categorías automáticas.")
+            if confirmar("¿Seguro?", default=False):
+                return "", model
             continue
         model = preguntar("Modelo", model)
         bien, detalle = llm.probar_conexion(key, model)

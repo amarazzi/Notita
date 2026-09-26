@@ -199,8 +199,10 @@ def revisar_personas() -> None:
 def revisar_gemini() -> None:
     titulo("Gemini")
     if not config.GEMINI_API_KEY:
-        mal("falta GEMINI_API_KEY: el bot no va a entender nada de lo que le escriban",
-            "sacá una gratis en https://aistudio.google.com/apikey")
+        ok("sin GEMINI_API_KEY: Notita anda en modo local, no le manda nada a Google")
+        print("      \033[2m→ en modo local no separa varias tareas de una frase sin comas,\033[0m")
+        print("      \033[2m  ni elige categoría/responsable tan bien. Las fechas sí funcionan.\033[0m")
+        print("      \033[2m→ si querés el modo completo: https://aistudio.google.com/apikey\033[0m")
         return
     bien, detalle = llm.probar_conexion()
     if not bien:

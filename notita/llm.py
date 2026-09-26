@@ -135,6 +135,11 @@ Reglas:
 """
 
 
+def disponible() -> bool:
+    """Si no hay API key, Notita trabaja en modo local (ver `heuristica.py`)."""
+    return bool(config.GEMINI_API_KEY)
+
+
 def _contexto_fecha(ref: date) -> str:
     return (f"Hoy es {DIAS_NOMBRE[ref.weekday()]} {ref.isoformat()} "
             f"(zona horaria America/Argentina/Buenos_Aires).")

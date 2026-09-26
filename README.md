@@ -145,6 +145,8 @@ NOTITA_CONTEXTO=Tenemos un gato que se llama Milo. Vivimos en un PH con patio.
 En [Google AI Studio](https://aistudio.google.com/apikey) → *Create API key*. Es gratis.
 El modelo por defecto es `gemini-2.5-flash`.
 
+Es **opcional**: sin key, Notita arranca en **modo local** (ver más abajo).
+
 > Verificado: el allowlist de salida de las cuentas gratuitas de PythonAnywhere incluye
 > `.googleapis.com` (cubre `generativelanguage.googleapis.com`) y `api.telegram.org`,
 > así que el Plan A funciona sin pagar nada. `requests` sale por el proxy de
@@ -271,6 +273,35 @@ El `.env` tiene secretos: `install.py` lo escribe con permisos `600` y está en 
 
 ---
 
+## Modo local (sin Gemini)
+
+Si dejás `GEMINI_API_KEY` vacío, Notita funciona igual pero interpreta todo con reglas
+en Python: no sale **nada** de tu servidor. Es también el **fallback automático** cuando
+Gemini falla (503, cuota agotada, sin internet): antes en ese caso la tarea se perdía con
+un «se me trabó la cabeza», ahora se guarda lo mejor posible y el bot avisa que la anotó
+a mano.
+
+Qué sigue funcionando igual:
+
+- **Todas las fechas**: «el lunes», «esta semana», «el 3 de octubre», «en dos semanas»,
+  «algún día»... es el mismo módulo testeado que usa el modo con LLM.
+- **Recurrencias**: «cada semana», «todos los martes», «todos los 10».
+- **Lista del súper**: por señales como «falta», «comprar», «se acabó».
+- **Responsable**: si el mensaje nombra a alguien de `NOTITA_PERSONAS`, o dice «los dos».
+- **Categorías**: por palabras clave (`pagar`→pagos, `veterinario`→mascotas, etc.).
+- Contesta los saludos y no anota los «jajaja».
+
+Qué se pierde:
+
+- Separa varias tareas **sólo si hay comas** («limpiar la heladera, llamar al plomero y
+  comprar focos» → 3 ✓; «limpiar la heladera y llamar al plomero» → 1 ✗). Sin LLM no se
+  puede saber si ese «y» separa tareas o es parte de una («hablar con el plomero y el
+  electricista»), y preferimos no partir mal.
+- Las categorías salen por palabra clave, así que cae más seguido en `otros`.
+- No pregunta cuando algo es ambiguo: lo anota y listo.
+
+---
+
 ## Cuando algo no anda
 
 ```bash
@@ -311,7 +342,7 @@ También desde el grupo: `/recordatorios`.
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt pytest
 cp .env.example .env
-pytest                 # 117 tests, sin red ni API keys
+pytest                 # 182 tests, sin red ni API keys
 python app.py          # http://localhost:5000
 ```
 
@@ -350,6 +381,7 @@ notita/
   dates.py              fechas y recurrencias — módulo puro, con tests
   db.py                 SQLite
   llm.py                Gemini con responseSchema
+  heuristica.py         interpretación sin LLM (modo local y fallback)
   telegram.py           cliente de la Bot API
   handlers.py           mensajes, comandos y botones
   reminders.py          recordatorios diarios y resumen semanal
