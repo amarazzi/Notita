@@ -65,6 +65,31 @@ febrero, pero vuelve al 31 en marzo.
 
 ## Puesta en marcha
 
+### Versión corta (lo que hace la mayoría)
+
+```bash
+git clone https://github.com/amarazzi/Notita.git ~/Notita
+cd ~/Notita
+pip3.13 install --user -r requirements.txt
+python3.13 install.py      # te guía y valida todo
+```
+
+El instalador te pide el token y la API key, **detecta solo** el grupo y el `user_id` de
+cada persona (no hace falta buscarlos), **avisa si el privacy mode está encendido**,
+escribe el `.env` y enchufa el webhook. Después:
+
+```bash
+python3.13 doctor.py       # chequea que todo esté en orden y te dice qué falta
+```
+
+Lo único que hay que hacer a mano antes es crear el bot y apagar el privacy mode
+(pasos 1 y 2), y después de instalar, programar la rutina de las 20:00 (paso 7).
+
+El resto de esta sección es el paso a paso detallado, por si algo falla o preferís
+hacerlo a mano.
+
+---
+
 ### 1. Crear el bot en BotFather
 
 1. En Telegram, hablale a [@BotFather](https://t.me/BotFather) → `/newbot`.
@@ -81,16 +106,39 @@ Sin esto el bot **no lee** los mensajes normales del grupo, sólo los comandos.
 
 ### 3. Crear el grupo y sacar el chat_id
 
-1. Creá un grupo con Axel, Barbu y Notita.
+1. Creá un grupo con las personas de la casa y Notita.
 2. Escribí `/chatid` en el grupo: el bot te contesta el número (es negativo, tipo `-1001234567890`).
    - Para que conteste hace falta que el webhook ya esté puesto (paso 6). Si todavía no,
      usá `https://api.telegram.org/bot<TOKEN>/getUpdates` en el navegador después de
      escribir algo en el grupo.
 
-### 4. Los user_id de cada uno
+`install.py` hace los pasos 3 y 4 solo, mirando quién escribió en el grupo.
 
-Hablale a [@userinfobot](https://t.me/userinfobot) desde cada cuenta; te dice el `id`.
-Sirven para las menciones de los recordatorios.
+### 4. Quiénes viven en la casa
+
+Notita soporta **cualquier cantidad de personas** (una, dos, cinco). Se configuran en una
+sola variable, con el formato `Nombre:user_id` separados por coma:
+
+```
+NOTITA_PERSONAS=Axel:11111111,Barbu:22222222
+```
+
+El `user_id` lo saca `install.py` solo, o te lo dice [@userinfobot](https://t.me/userinfobot)
+si le escribís desde cada cuenta. Sirve para mencionar a la persona en los recordatorios;
+si no lo ponés, la persona igual funciona pero sin ping.
+
+De ahí salen los nombres que muestra el bot, los que entiende el LLM cuando le decís
+«Barbu tiene que llamar al veterinario», y el «los dos» (que pasa a ser «todos» si son
+tres o más).
+
+> Las variables viejas `AXEL_USER_ID` / `BARBU_USER_ID` siguen funcionando, así que un
+> `.env` existente no se rompe.
+
+Opcionalmente podés darle contexto de la casa para que acierte mejor:
+
+```
+NOTITA_CONTEXTO=Tenemos un gato que se llama Milo. Vivimos en un PH con patio.
+```
 
 ### 5. API key de Gemini
 
@@ -199,20 +247,50 @@ raíz del proyecto (lo carga `python-dotenv`, tanto la web app como la tarea dia
 TELEGRAM_TOKEN=...
 TELEGRAM_WEBHOOK_SECRET=algo-largo-y-random
 ALLOWED_CHAT_ID=-1001234567890
+NOTITA_PERSONAS=Axel:11111111,Barbu:22222222
 CRON_SECRET=                      # sólo si usás la opción B
-AXEL_USER_ID=...
-BARBU_USER_ID=...
 GEMINI_API_KEY=...
 GEMINI_MODEL=gemini-2.5-flash
 ```
 
 | Variable | Para qué |
 |---|---|
+| `TELEGRAM_TOKEN` | El token de BotFather |
 | `ALLOWED_CHAT_ID` | La única puerta de entrada: el bot ignora cualquier otro chat |
 | `TELEGRAM_WEBHOOK_SECRET` | Telegram lo manda en el header `X-Telegram-Bot-Api-Secret-Token`; el webhook rechaza lo que no coincida |
+| `NOTITA_PERSONAS` | Quiénes viven en la casa: `Nombre:user_id` separados por coma |
+| `NOTITA_CONTEXTO` | Opcional: dato libre de la casa para que el LLM acierte mejor |
 | `CRON_SECRET` | Habilita `/cron/recordatorios` (opción B). **Vacío = ruta apagada** |
+| `GEMINI_API_KEY` | La key de Google AI Studio |
+| `GEMINI_MODEL` | Por defecto `gemini-2.5-flash` |
+| `NOTITA_DB` | Opcional: ruta del archivo SQLite |
 
 Después de tocar el `.env` hay que hacer **Reload** de la web app.
+El `.env` tiene secretos: `install.py` lo escribe con permisos `600` y está en el
+`.gitignore`, no lo subas al repo.
+
+---
+
+## Cuando algo no anda
+
+```bash
+python3 doctor.py              # revisa todo y te dice qué arreglar
+python3 doctor.py --mensaje    # además manda un mensaje de prueba al grupo
+```
+
+Chequea, en orden: versión de Python y dependencias, `.env`, zona horaria, que el token
+sirva, **que el privacy mode esté apagado**, el estado del webhook (incluidos mensajes
+encolados y el último error que reportó Telegram), que el bot siga en el grupo, las
+personas configuradas, que Gemini responda y devuelva las tildes bien, que la base sea
+escribible, y cómo quedó agendada la rutina de las 20:00. Sale con código 1 si encontró
+algo roto.
+
+| Síntoma | Causa más común |
+|---|---|
+| No contesta nada | Falta el Reload, o hay un error en el *Error log* de la pestaña Web |
+| Sólo contesta los comandos | Privacy mode encendido: apagalo y re-agregá el bot al grupo |
+| «Se me trabó la cabeza un segundo» | Gemini falló: key, modelo o cuota. `doctor.py` te dice cuál |
+| Mensajes encolados creciendo | La web app está caída y Telegram sigue reintentando |
 
 ---
 
@@ -233,7 +311,7 @@ También desde el grupo: `/recordatorios`.
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt pytest
 cp .env.example .env
-pytest                 # 77 tests, sin red ni API keys
+pytest                 # 117 tests, sin red ni API keys
 python app.py          # http://localhost:5000
 ```
 
@@ -262,11 +340,13 @@ Si la VM queda en UTC, usá `0 23 * * *`.
 ## Estructura
 
 ```
+install.py              instalador guiado: escribe el .env y enchufa el webhook
+doctor.py               diagnóstico: qué está mal y cómo se arregla
 app.py                  webhook Flask (lo que sirve PythonAnywhere)
 run_reminders.py        rutina de las 20:00 (cron / scheduler / modo prueba)
 set_webhook.py          alta, consulta y baja del webhook
 notita/
-  config.py             variables de entorno, zona horaria, mapeo de usuarios
+  config.py             variables de entorno, zona horaria, quiénes viven en la casa
   dates.py              fechas y recurrencias — módulo puro, con tests
   db.py                 SQLite
   llm.py                Gemini con responseSchema
@@ -274,8 +354,22 @@ notita/
   handlers.py           mensajes, comandos y botones
   reminders.py          recordatorios diarios y resumen semanal
   views.py              textos y teclados
-tests/                  fechas, recurrencias y flujo completo (LLM y Telegram simulados)
+tests/                  fechas, recurrencias, personas, LLM y flujo completo
 ```
+
+## ¿Lo puedo usar en mi casa?
+
+Sí, no hay nada atado a nosotros. Forkealo o clonalo, corré `install.py` y listo:
+los nombres, la cantidad de personas y el contexto de la casa salen del `.env`.
+
+Lo que **sí** está fijado en el código, por decisión y no por descuido:
+
+- Zona horaria **America/Argentina/Buenos_Aires** y los textos en español rioplatense.
+  Si lo querés en otro lado, cambiá `TZ` en `config.py` y los textos de `views.py`.
+- Las **categorías** (`limpieza`, `arreglos`, `tramites`, `pagos`, `mascotas`, `compras`,
+  `otros`) están en `config.CATEGORIAS`. Se pueden cambiar ahí: el LLM las toma de esa
+  lista, no hay que tocar el prompt.
+- La **semana va de lunes a domingo** y el recordatorio es a las **20:00**.
 
 ## Fuera del MVP
 

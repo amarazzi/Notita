@@ -69,7 +69,10 @@ def _texto_recordatorio(row, ref: date) -> str:
     if d and d < ref:
         partes.append(f"<i>Venció {formato_humano(d, ref)}.</i>")
     if row["responsable"] == "ambos":
-        partes.append(f"Es de los dos: {telegram.mencion('axel')} y {telegram.mencion('barbu')}.")
+        quienes = [telegram.mencion(p.slug) for p in config.PERSONAS_CASA]
+        if quienes:
+            lista = " y ".join([", ".join(quienes[:-1]), quienes[-1]] if len(quienes) > 2 else quienes)
+            partes.append(f"Es de {config.NOMBRES['ambos']}: {lista}.")
     elif row["responsable"] != "ninguno":
         partes.append(f"Quedó a cargo de {telegram.mencion(row['responsable'])}.")
     if row["postpone_count"] >= 3:

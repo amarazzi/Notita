@@ -70,8 +70,9 @@ def sufijo_responsable(row: sqlite3.Row, con_mencion: bool = False) -> str:
     if r == "ninguno":
         return ""
     if r == "ambos":
-        return " · los dos"
-    return f" · {mencion(r) if con_mencion else escapar(config.NOMBRES[r])}"
+        return f" · {config.NOMBRES['ambos']}"
+    # .get por si la tarea quedó a nombre de alguien que ya no está en la config.
+    return f" · {mencion(r) if con_mencion else escapar(config.NOMBRES.get(r, r))}"
 
 
 def texto_tarea(row: sqlite3.Row) -> str:

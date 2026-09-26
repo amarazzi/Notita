@@ -288,7 +288,7 @@ def _marcar_hecha(chat_id: int, message_id: int, cq_id: str, row, quien: str) ->
     telegram.responder_callback(cq_id, "¡Hecho! 🎉")
     final = f"✅ <s>{telegram.escapar(row['texto'])}</s>"
     if quien != "ninguno":
-        final += f" — {telegram.escapar(config.NOMBRES[quien])}"
+        final += f" — {telegram.escapar(config.NOMBRES.get(quien, quien))}"
     if nueva is not None:
         final += f"\n🔁 La próxima: {formato_humano(de_iso(nueva['due_date']), hoy())}"
     telegram.editar(chat_id, message_id, final)
