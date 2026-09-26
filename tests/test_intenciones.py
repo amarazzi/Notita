@@ -220,6 +220,10 @@ def test_intenciones_sin_llm(frase, intencion):
     ("ya limpié la heladera", "heladera"),
     ("borrá la del plomero", "plomero"),
     ("olvidate de la heladera", "heladera"),
+    # Mal escrito, que es como se escribe desde el celular.
+    ("elimna la del plomero", "plomero"),
+    ("borrar lo de la heladera", "heladera"),
+    ("sacala del plomero", "plomero"),
 ])
 def test_completar_y_borrar_sin_llm(frase, referencia):
     data = heuristica.interpretar(frase)

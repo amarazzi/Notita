@@ -96,7 +96,11 @@ INTENCIONES = (
                   r"limpie|limpiamos|pague|pagamos|llame|llamamos|saque|sacamos|compre|compramos|"
                   r"arregle|arreglamos|ordene|ordenamos|regue|regamos)"
                   r"|^(hecho|listo|ya esta|ya fue)\b"),
-    ("borrar", r"^(borra|borrame|elimina|saca|sacame|cancela|olvidate|olvidalo|no importa)\b"),
+    # Con las variantes mal escritas más comunes: se escribe rápido desde el celular.
+    # (`aplanar` ya saca las tildes, así que "borrá" llega como "borra".)
+    ("borrar", r"^(borra|borralo|borrala|borrame|borrar|elimina|elimna|eliminar|"
+               r"saca|sacalo|sacala|sacame|cancela|cancelar|olvidate|olvidalo|"
+               r"no importa|ya no)\b"),
 )
 
 # Palabras a sacar de la referencia («borrá la de la heladera» -> «heladera»).
@@ -104,7 +108,7 @@ RUIDO_REFERENCIA = re.compile(
     r"^(ya|listo|borra|borrame|elimina|saca|sacame|cancela|olvidate de|olvidate|"
     r"esta|estan|hecho|hecha|hice|hicimos|termine|terminamos|limpie|limpiamos|pague|"
     r"pagamos|llame|llamamos|saque|sacamos|compre|compramos|arregle|arreglamos|ordene|"
-    r"ordenamos|regue|regamos|lo de|la de|el de|lo del|la del|de|el|la|los|las|que|"
+    r"ordenamos|regue|regamos|lo de|la de|el de|lo del|la del|de|del|el|la|los|las|que|"
     r"tarea|tema)\b\s*")
 
 # «decile a Axel que lo amo», «avisale a Barbu que llego tarde»

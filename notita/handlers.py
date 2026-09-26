@@ -223,6 +223,10 @@ def _interpretar_y_guardar(chat_id: int, texto: str, autor: str,
         if tipo == "recado" and responsable in ("ninguno", ""):
             # Un recado sin destinatario no se puede entregar: es una tarea común.
             tipo = "casa"
+        if tipo == "casa" and categoria == "compras":
+            # El LLM a veces mezcla: una tarea de casa con categoría compras quedaba
+            # con el carrito 🛒 en la lista, como si fuera del súper. Manda `tipo`.
+            categoria = "otros"
         if tipo == "compras":
             categoria, due, rec, spec = "compras", None, None, DateSpec("algun_dia")
         elif tipo == "recado":

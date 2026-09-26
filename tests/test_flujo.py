@@ -100,6 +100,25 @@ def test_responder_la_fecha_con_boton(monkeypatch, enviados):
     assert db.obtener(tid)["due_date"] is None
 
 
+def test_una_tarea_de_casa_no_lleva_el_carrito(monkeypatch, enviados):
+    """El LLM a veces devuelve tipo=casa con categoria=compras: manda el tipo."""
+    fake_llm(monkeypatch, [item("comprar la cómoda", tipo="casa", categoria="compras",
+                                fecha_kind="hoy")])
+    handlers.handle_update(mensaje("hay que comprar la cómoda hoy"))
+
+    tarea = db.pendientes(CHAT, tipo="casa")[0]
+    assert tarea["categoria"] == "otros"
+    assert "🛒" not in views.linea_tarea(tarea, hoy())
+    assert tarea["due_date"] == hoy().isoformat()   # conserva la fecha
+
+
+def test_una_tarea_vieja_inconsistente_tampoco_muestra_el_carrito(enviados):
+    # Las que quedaron guardadas antes de arreglar esto.
+    tid = db.crear_tarea(CHAT, "comprar la cómoda", tipo="casa", categoria="compras",
+                         due=hoy())
+    assert "🛒" not in views.linea_tarea(db.obtener(tid), hoy())
+
+
 def test_compras_no_pregunta_fecha(monkeypatch, enviados):
     fake_llm(monkeypatch, [item("leche", tipo="compras", categoria="compras",
                                 fecha_kind="algun_dia")])

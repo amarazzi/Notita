@@ -64,6 +64,8 @@ def teclado_super(rows) -> list:
 def emoji(row: sqlite3.Row) -> str:
     if row["tipo"] == "recado":
         return "💌"
+    if row["tipo"] != "compras" and row["categoria"] == "compras":
+        return config.CATEGORIA_EMOJI["otros"]  # no es del súper: que no lleve carrito
     return config.CATEGORIA_EMOJI.get(row["categoria"], "📌")
 
 
