@@ -87,7 +87,19 @@ Lo único que hay que hacer a mano antes es crear el bot y apagar el privacy mod
 
 Se puede volver a correr cuando quieras: lo que ya tenías se ofrece como respuesta por
 defecto (Enter lo deja igual), el `.env` anterior queda copiado en `.env.bak` y, si había
-un webhook andando, lo deja como estaba. Para ensayar sin tocar nada real:
+un webhook andando, lo deja como estaba.
+
+### Probarlo sin tener nada
+
+```bash
+python3.13 install.py --demo
+```
+
+Recorre el instalador completo con un Telegram y un Gemini **de mentira**: no hace falta
+token ni API key, no sale nada a internet y no se toca ninguna configuración (escribe en
+un archivo temporal). Sirve para ver cómo es antes de crear el bot.
+
+Si ya tenés todo y sólo querés ensayar contra tu bot real sin pisar el `.env`:
 
 ```bash
 python3.13 install.py --env /tmp/prueba.env
@@ -350,7 +362,7 @@ También desde el grupo: `/recordatorios`.
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt pytest
 cp .env.example .env
-pytest                 # 200 tests, sin red ni API keys
+pytest                 # 220 tests, sin red ni API keys
 python app.py          # http://localhost:5000
 ```
 
@@ -390,6 +402,7 @@ set_webhook.py          alta, consulta y baja del webhook
 notita/
   config.py             variables de entorno, zona horaria, quiénes viven en la casa
   deps.py               avisa qué falta instalar, en castellano
+  demo.py               Telegram y Gemini de mentira para install.py --demo
   dates.py              fechas y recurrencias — módulo puro, con tests
   db.py                 SQLite
   llm.py                Gemini con responseSchema

@@ -19,6 +19,8 @@ import re
 import secrets
 import shutil
 import sys
+import tempfile
+import time
 from pathlib import Path
 
 from notita import deps
@@ -37,6 +39,12 @@ PREVIO: dict[str, str] = {}
 # Si desconectamos un webhook que ya andaba, lo recordamos para poder dejarlo
 # como estaba (incluso si cortan el wizard a mitad de camino).
 _A_RESTAURAR: dict[str, str] = {}
+# En modo demo nada sale a internet (ver notita/demo.py).
+DEMO = False
+# Cuánto escuchar el grupo esperando que escriban, y cuántos segundos de silencio
+# alcanzan para darlo por terminado.
+ESPERA = 90
+QUIETO = 6
 
 # Los módulos logean los errores crudos; acá los contamos nosotros, con más contexto.
 logging.getLogger("notita").setLevel(logging.CRITICAL)
@@ -75,10 +83,26 @@ def preguntar(texto: str, default: str = "") -> str:
     return r or default
 
 
+SI = ("s", "si", "sí", "sip", "dale", "ok", "y", "yes")
+NO = ("n", "no", "nop", "nah")
+
+
 def confirmar(texto: str, default: bool = True) -> bool:
+    """Sí o no. Si la respuesta no se entiende, vuelve a preguntar.
+
+    Importante que NO asuma nada: antes cualquier tecla que no empezara con «s»
+    contaba como no, y algunas de estas preguntas cortan el instalador.
+    """
     d = "S/n" if default else "s/N"
-    r = preguntar(f"{texto} ({d})").lower()
-    return default if not r else r.startswith("s")
+    while True:
+        r = preguntar(f"{texto} ({d})").strip().lower()
+        if not r:
+            return default
+        if r in SI:
+            return True
+        if r in NO:
+            return False
+        mal("No te entendí. Contestá «s» o «n».")
 
 
 # --------------------------------------------------------------------------
@@ -113,9 +137,26 @@ def leer_env(ruta: Path) -> dict[str, str]:
     return valores
 
 
+def activar_demo() -> None:
+    """Reemplaza Telegram y Gemini por simuladores. No se toca la red."""
+    global tg, DEMO
+    from notita import demo, llm as _llm
+
+    DEMO = True
+    tg = demo.TelegramDeMentira()
+    requests.get = lambda *a, **k: demo.RespuestaHTTP()  # el chequeo de la web app
+    _llm.probar_conexion, _llm.interpretar_mensaje = demo.gemini_de_mentira()
+
+    print("\n\033[33m\033[1m  MODO DEMO\033[0m — Telegram y Gemini son de mentira.")
+    print("  No sale nada a internet y no se toca ninguna configuración real.")
+    print(f"  Podés pegar este token falso: \033[1m{demo.TOKEN}\033[0m")
+    print("  O escribir cualquier cosa: te va a ir avisando qué está mal.")
+
+
 def paso_token() -> tuple[str, str]:
     titulo(1, "El token del bot")
-    dato("Si todavía no lo tenés: hablale a @BotFather → /newbot y copiá el token.")
+    dato("Si todavía no lo tenés: abrí Telegram, hablale a @BotFather,")
+    dato("mandale /newbot, seguí los pasos y copiá el token que te da.")
     while True:
         token = preguntar("Token de BotFather", PREVIO.get("TELEGRAM_TOKEN", ""))
         if not re.fullmatch(r"\d+:[\w-]{30,}", token or ""):
@@ -146,6 +187,54 @@ def paso_token() -> tuple[str, str]:
         return token, res["username"]
 
 
+def esperar_mensajes(token: str, espera: float | None = None, quieto: float | None = None
+                     ) -> tuple[dict[int, str], dict[int, str]]:
+    """Escucha el grupo hasta `espera` segundos y avisa a medida que ve gente.
+
+    Corta cuando pasaron `quieto` segundos sin ver a nadie nuevo, así no hay que
+    adivinar cuándo terminaron de escribir todos.
+    """
+    espera = ESPERA if espera is None else espera
+    quieto = QUIETO if quieto is None else quieto
+    grupos: dict[int, str] = {}
+    gente: dict[int, str] = {}
+    offset = None
+    arranque = time.time()
+    ultimo = None
+
+    print("  \033[36m…\033[0m Escuchando el grupo. Escriban algo ahora (Ctrl+C para cortar).")
+    while time.time() - arranque < espera:
+        bien, updates = tg(token, "getUpdates", timeout=0, offset=offset,
+                           allowed_updates=["message"])
+        if not bien:
+            mal(f"No pude leer los mensajes: {updates}")
+            break
+        for u in updates or []:
+            offset = u.get("update_id", 0) + 1
+            msg = u.get("message") or {}
+            chat = msg.get("chat") or {}
+            if chat.get("type") not in ("group", "supergroup"):
+                continue
+            grupos[chat["id"]] = chat.get("title", "sin título")
+            autor = msg.get("from") or {}
+            uid = autor.get("id")
+            if uid and not autor.get("is_bot") and uid not in gente:
+                gente[uid] = autor.get("first_name") or f"user{uid}"
+                ok(f"Te escuché, {gente[uid]} ({uid})")
+                ultimo = time.time()
+        if ultimo and time.time() - ultimo >= quieto:
+            break
+        if DEMO:  # en demo no hay nada que esperar
+            break
+        time.sleep(2)
+
+    # Confirmamos lo leído. Si no, Telegram guarda esos mensajes y se los entrega
+    # al webhook cuando lo reconectamos: Notita intentaría anotar un «hola».
+    if offset is not None:
+        tg(token, "getUpdates", timeout=0, offset=offset)
+    return grupos, gente
+
+
 def paso_grupo_y_personas(token: str, usuario_bot: str) -> tuple[int, tuple[Persona, ...], str]:
     """Devuelve (chat_id, personas, webhook que había antes de empezar)."""
     titulo(2, "El grupo y quiénes viven en la casa")
@@ -163,30 +252,20 @@ def paso_grupo_y_personas(token: str, usuario_bot: str) -> tuple[int, tuple[Pers
         _A_RESTAURAR.update(token=token, url=webhook_previo)
     tg(token, "deleteWebhook")
 
-    chat_id, gente = 0, {}
+    # Se acumulan entre vueltas: si en la segunda nadie escribe, no se pierde
+    # el grupo que ya habíamos encontrado.
+    chat_id, gente, grupos = 0, {}, {}
     while True:
-        preguntar("Cuando todos hayan escrito, apretá Enter")
-        bien, updates = tg(token, "getUpdates", timeout=0, allowed_updates=["message"])
-        if not bien:
-            mal(f"No pude leer los mensajes: {updates}")
-            continue
-
-        grupos: dict[int, str] = {}
-        for u in updates or []:
-            msg = u.get("message") or {}
-            chat = msg.get("chat") or {}
-            if chat.get("type") not in ("group", "supergroup"):
-                continue
-            grupos[chat["id"]] = chat.get("title", "sin título")
-            autor = msg.get("from") or {}
-            if autor.get("id") and not autor.get("is_bot"):
-                gente[autor["id"]] = autor.get("first_name") or f"user{autor['id']}"
+        grupos_nuevos, gente_nueva = esperar_mensajes(token)
+        grupos.update(grupos_nuevos)
+        gente.update(gente_nueva)
 
         if not grupos:
-            mal("No vi ningún mensaje de grupo.")
-            dato("Chequeá que el bot esté EN el grupo y que alguien haya escrito después de agregarlo.")
-            dato("Ojo: si el privacy mode está encendido, probá escribiendo /todo en el grupo.")
-            if confirmar("¿Reintento?"):
+            mal("No vi ningún mensaje en ningún grupo.")
+            dato(f"Chequeá que @{usuario_bot} esté EN el grupo (agregado, no sólo invitado).")
+            dato("Los mensajes tienen que ser NUEVOS: escribí algo mientras yo espero.")
+            dato("Si el privacy mode quedó encendido, probá escribiendo /todo en el grupo.")
+            if confirmar("¿Espero de nuevo?"):
                 continue
             raise SystemExit("  Cortamos acá. Volvé cuando el bot esté en el grupo.")
 
@@ -208,13 +287,9 @@ def paso_grupo_y_personas(token: str, usuario_bot: str) -> tuple[int, tuple[Pers
 
         if not gente:
             aviso("No pude sacar quién es quién: no vi mensajes de personas.")
-        else:
-            print("  Personas detectadas:")
-            for uid, nombre in gente.items():
-                dato(f"· {nombre} ({uid})")
         if confirmar("¿Está completa la lista?"):
             break
-        aviso("Que escriba en el grupo quien falte y reintentamos.")
+        aviso("Que escriba en el grupo quien falte, que sigo escuchando.")
 
     personas: list[Persona] = []
     for uid, detectado in gente.items():
@@ -381,16 +456,25 @@ def main() -> None:
 
     p = argparse.ArgumentParser(description="Instalador guiado de Notita")
     p.add_argument("--env", help="escribir en otro archivo (para ensayar sin tocar el .env real)")
+    p.add_argument("--demo", action="store_true",
+                   help="recorrer el instalador con Telegram y Gemini simulados, sin credenciales")
     args = p.parse_args()
-    if args.env:
-        ENV = Path(args.env).expanduser().resolve()
-    PREVIO = leer_env(ENV)
 
     print("\n\033[1m🧲 Notita — instalador\033[0m")
     print("  Se puede cortar con Ctrl+C. No toca la base de datos.")
+
+    if args.demo:
+        # En demo nunca se escribe el .env real, ni aunque no pasen --env.
+        ENV = Path(args.env).expanduser().resolve() if args.env else \
+            Path(tempfile.gettempdir()) / "notita-demo.env"
+        activar_demo()
+    elif args.env:
+        ENV = Path(args.env).expanduser().resolve()
+    PREVIO = leer_env(ENV)
+
     if PREVIO:
         print(f"  Ya hay configuración en {ENV.name}: la uso como respuesta por defecto.")
-    if args.env:
+    if args.env or args.demo:
         print(f"  \033[33mModo ensayo:\033[0m voy a escribir en {ENV}")
 
     token, usuario_bot = paso_token()
@@ -411,6 +495,12 @@ def main() -> None:
     })
     paso_webhook(token, url, secret, chat_id, webhook_previo)
 
+    if DEMO:
+        print("\n\033[33m\033[1m  Fin de la demo.\033[0m Nada de esto era real.")
+        print(f"  Mirá lo que habría escrito: cat {ENV}")
+        print("  Cuando tengas el bot de verdad: python3 install.py\n")
+        return
+
     print("\n\033[1m¡Listo!\033[0m Lo que falta:")
     print("  1. Si estás en PythonAnywhere: pestaña Web → botón \033[1mReload\033[0m")
     print("     (la web app lee el .env recién al arrancar).")
@@ -426,7 +516,9 @@ def restaurar_webhook() -> None:
         return
     bien, _ = tg(_A_RESTAURAR["token"], "setWebhook", url=_A_RESTAURAR["url"],
                  secret_token=PREVIO.get("TELEGRAM_WEBHOOK_SECRET") or None,
-                 allowed_updates=["message", "edited_message", "callback_query"])
+                 allowed_updates=["message", "edited_message", "callback_query"],
+                 # Que no le lleguen los mensajes que usamos para detectar el grupo.
+                 drop_pending_updates=True)
     if bien:
         ok(f"Dejé el webhook como estaba: {_A_RESTAURAR['url']}")
     else:
