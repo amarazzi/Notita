@@ -160,19 +160,20 @@ def revisar_webhook() -> None:
 
 
 def revisar_grupo(yo: dict | None) -> None:
-    titulo("El grupo")
+    titulo("El chat")
     if not config.ALLOWED_CHAT_ID:
         mal("falta ALLOWED_CHAT_ID: el bot ignora todos los chats",
-            "escribí /chatid en el grupo y poné ese número en el .env")
+            "escribí /chatid en el chat y poné ese número en el .env")
         return
     bien, chat = tg("getChat", chat_id=config.ALLOWED_CHAT_ID)
     if not bien:
         mal(f"no puedo ver el chat {config.ALLOWED_CHAT_ID}: {chat}",
-            "¿está bien el ALLOWED_CHAT_ID? ¿el bot sigue en el grupo?")
+            "¿está bien el ALLOWED_CHAT_ID? ¿el bot sigue en el chat?")
         return
+    if chat.get("type") == "private":
+        ok(f"chat privado con {chat.get('first_name', 'vos')} (uso individual)")
+        return  # en un privado no hay membresía que revisar
     ok(f"«{chat.get('title', 'sin título')}» ({chat.get('type')})")
-    if chat.get("type") not in ("group", "supergroup"):
-        aviso("ese chat no es un grupo; Notita está pensada para un grupo compartido")
 
     if yo:
         bien, miembro = tg("getChatMember", chat_id=config.ALLOWED_CHAT_ID, user_id=yo["id"])

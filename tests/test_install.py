@@ -491,14 +491,15 @@ def test_esperar_mensajes_sin_nada_no_se_cuelga(telegram_falso, monkeypatch):
     assert grupos == {} and gente == {}
 
 
-def test_ignora_los_chats_privados_y_los_bots(telegram_falso, monkeypatch):
+def test_acepta_chats_privados_para_uso_individual(telegram_falso, monkeypatch):
+    """Alguien que lo quiera para él solo le escribe por privado y listo."""
     tg_base = install.tg
 
-    def solo_privado(token, metodo, **payload):
+    def chats_varios(token, metodo, **payload):
         if metodo == "getUpdates":
             return True, [
                 {"update_id": 1, "message": {"chat": {"id": 5, "type": "private"},
-                                             "from": {"id": 5, "first_name": "Yo"}}},
+                                             "from": {"id": 5, "first_name": "Cami"}}},
                 {"update_id": 2, "message": {"chat": {"id": GRUPO, "type": "supergroup",
                                                       "title": "Casita"},
                                              "from": {"id": 9, "first_name": "OtroBot",
@@ -506,12 +507,36 @@ def test_ignora_los_chats_privados_y_los_bots(telegram_falso, monkeypatch):
             ]
         return tg_base(token, metodo, **payload)
 
-    monkeypatch.setattr(install, "tg", solo_privado)
+    monkeypatch.setattr(install, "tg", chats_varios)
     monkeypatch.setattr(install.time, "sleep", lambda s: None)
 
     grupos, gente = install.esperar_mensajes(TOKEN, espera=0.05, quieto=0)
-    assert grupos == {GRUPO: "Casita"}  # el supergrupo sí
-    assert gente == {}                  # el bot no cuenta como persona
+    assert grupos == {5: "privado con Cami", GRUPO: "Casita"}
+    assert gente == {5: "Cami"}   # el bot no cuenta como persona
+
+
+def test_instalacion_individual_por_privado(tmp_path, monkeypatch, telegram_falso, capsys):
+    """Una sola persona, chat privado: el instalador tiene que poder configurarlo."""
+    llamadas, _ = telegram_falso
+    tg_base = install.tg
+
+    def solo_privado(token, metodo, **payload):
+        if metodo == "getUpdates":
+            if payload.get("offset"):
+                return True, []
+            return True, [{"update_id": 1, "message": {
+                "chat": {"id": 12345, "type": "private"},
+                "from": {"id": 12345, "first_name": "Cami", "is_bot": False}}}]
+        return tg_base(token, metodo, **payload)
+
+    monkeypatch.setattr(install, "tg", solo_privado)
+    env = tmp_path / ".env"
+    correr(monkeypatch, env, guion(nombre_2=None))  # sólo una persona
+
+    valores = install.leer_env(env)
+    assert valores["ALLOWED_CHAT_ID"] == "12345"
+    assert valores["NOTITA_PERSONAS"] == "Cami:12345"
+    assert "privado con Cami" in capsys.readouterr().out
 
 
 # --------------------------------------------------------------------------

@@ -29,7 +29,11 @@ ALLOWED_CHAT_ID = int(os.getenv("ALLOWED_CHAT_ID", "0") or 0)
 CRON_SECRET = os.getenv("CRON_SECRET", "")
 
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
-GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+# Ojo con el modelo: en la capa gratuita, gemini-2.5-flash da 20 requests POR DÍA
+# (quotaId GenerateRequestsPerDayPerProjectPerModel-FreeTier), que no alcanza para una
+# casa. Los "lite" tienen mucha más. Los alias -latest no se dan de baja como los
+# nombres con versión (gemini-2.0-flash ya devuelve 404).
+GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-flash-lite-latest")
 
 DB_PATH = os.getenv("NOTITA_DB", str(BASE_DIR / "notita.db"))
 

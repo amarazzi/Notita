@@ -24,16 +24,32 @@ ENDPOINT = "https://generativelanguage.googleapis.com/v1beta/models/{model}:gene
 TIMEOUT = 25
 INTENTOS = 3
 ESPERA = 1  # segundos (1, después 2)
-# Errores que valen la pena reintentar: cuota momentánea y modelo sobrecargado.
-REINTENTABLES = (429, 500, 502, 503, 504)
+# Vale la pena reintentar cuando el modelo está sobrecargado: se arregla en segundos.
+# El 429 NO se reintenta: es cuota por minuto y Google pide esperar ~30s, más de lo que
+# Telegram aguanta un webhook. Conviene caer al modo local, que guarda la tarea igual.
+REINTENTABLES = (500, 502, 503, 504)
 
 NO_APLICA = -1
+
+# Qué quiere el mensaje. `anotar` es lo de siempre; el resto son cosas que Notita
+# ya sabía hacer pero sólo por comando.
+INTENCIONES = (
+    "anotar",
+    "ver_pendientes",
+    "ver_super",
+    "ver_algun_dia",
+    "ver_ayuda",
+    "completar",
+    "borrar",
+    "charla",
+)
+
 
 def _item_props() -> dict:
     """El enum de `responsable` depende de quién vive en la casa, así que se arma al vuelo."""
     return {
-        "texto": {"type": "string", "description": "La tarea en infinitivo, corta y clara. Ej: 'limpiar la heladera'."},
-        "tipo": {"type": "string", "enum": ["casa", "compras"]},
+        "texto": {"type": "string", "description": "La tarea en infinitivo, corta y clara. Ej: 'limpiar la heladera'. Si tipo='recado', el mensaje a transmitir tal como lo dijeron."},
+        "tipo": {"type": "string", "enum": ["casa", "compras", "recado"]},
         "categoria": {"type": "string", "enum": list(config.CATEGORIAS)},
         "responsable": {"type": "string", "enum": list(config.PERSONAS)},
         "fecha_kind": {"type": "string", "enum": list(KINDS)},
@@ -56,8 +72,15 @@ def schema_mensaje() -> dict:
     return {
         "type": "object",
         "properties": {
-            "es_tarea": {"type": "boolean", "description": "false si el mensaje es charla y no hay nada para anotar."},
-            "comentario": {"type": "string", "description": "Si es_tarea=false, una respuesta breve y cariñosa. Si no, ''."},
+            "intencion": {"type": "string", "enum": list(INTENCIONES),
+                          "description": "Qué quiere el mensaje."},
+            # Ojo: Gemini rechaza el string vacío dentro de un enum, de ahí "ninguna".
+            "categoria_filtro": {"type": "string", "enum": ["ninguna", *config.CATEGORIAS],
+                                 "description": "Si intencion=ver_pendientes y pidieron una categoría puntual; si no, 'ninguna'."},
+            "referencia": {"type": "string",
+                           "description": "Si intencion=completar o borrar, de qué tarea hablan, con las palabras del mensaje."},
+            "es_tarea": {"type": "boolean", "description": "true si hay algo para anotar (equivale a intencion=anotar)."},
+            "comentario": {"type": "string", "description": "Si no hay nada para anotar, una respuesta breve y cariñosa. Si no, ''."},
             "items": {
                 "type": "array",
                 "items": {
@@ -69,9 +92,11 @@ def schema_mensaje() -> dict:
                 },
             },
         },
-        "required": ["es_tarea", "items"],
-        "propertyOrdering": ["es_tarea", "comentario", "items"],
+        "required": ["intencion", "es_tarea", "items"],
+        "propertyOrdering": ["intencion", "categoria_filtro", "referencia",
+                             "es_tarea", "comentario", "items"],
     }
+
 
 SCHEMA_FECHA = {
     "type": "object",
@@ -101,13 +126,41 @@ def _quienes_viven() -> str:
 
 def _sistema() -> str:
     return f"""Sos Notita, un bot que organiza las tareas de una casa donde viven {config.nombres_de_la_casa()}.
-Recibís mensajes en español rioplatense de un grupo de Telegram y los convertís en tareas.
+Recibís mensajes en español rioplatense de un grupo de Telegram.
 {f"Sobre la casa: {config.CONTEXTO_CASA}" if config.CONTEXTO_CASA else ""}
-Reglas:
+Lo PRIMERO es decidir la intención del mensaje:
+- "anotar": hay algo para anotar (una tarea, algo del súper, o un recado). es_tarea=true.
+- "ver_pendientes": piden ver lo que hay que hacer ("qué hay que hacer", "mostrame las
+  tareas", "qué tenemos pendiente"). Si piden una categoría puntual ("las de limpieza"),
+  poné categoria_filtro; si no, categoria_filtro="ninguna".
+- "ver_super": piden ver la lista del súper ("mostrame el súper", "qué falta comprar").
+- "ver_algun_dia": piden ver lo que no tiene fecha.
+- "ver_ayuda": preguntan cómo funcionás o qué sabés hacer.
+- "completar": avisan que algo YA SE HIZO ("ya limpié la heladera", "listo lo del plomero").
+  Poné en `referencia` las palabras con las que nombran esa tarea.
+- "borrar": piden borrar o cancelar algo ("borrá la de la heladera", "olvidate del plomero").
+  Poné en `referencia` las palabras con las que la nombran.
+- "charla": cualquier otra cosa. items=[] y un comentario breve.
+Cuando la intención no es "anotar", devolvé items=[] y es_tarea=false.
+
+MUY IMPORTANTE: no prometas nada que no esté en esa lista. Vos podés anotar, mostrar,
+completar, borrar y transmitir recados. No digas "se lo digo", "le aviso" o "te recuerdo"
+salvo que hayas creado el item correspondiente.
+
+Reglas para anotar:
 - Un mensaje puede contener VARIAS tareas: separalas en items distintos.
   "hay que limpiar la heladera, llamar al plomero y comprar focos" son 3 items.
 - tipo="compras" si es algo que se compra en el super o en un negocio
-  ("falta leche", "comprar yerba", "se acabó el detergente"). Todo lo demás es tipo="casa".
+  ("falta leche", "comprar yerba", "se acabó el detergente").
+- tipo="recado" si le piden que le TRANSMITA un mensaje a alguien de la casa:
+  "decile a Axel que lo amo", "avisale a Barbu que la busco a las 8".
+  En ese caso `texto` es el mensaje a transmitir, redactado como si la persona se lo
+  dijera EN LA CARA a quien lo recibe: "decile a Axel que lo amo" -> texto="te amo";
+  "avisale a Barbu que la busco a las 8" -> texto="te busco a las 8".
+  `responsable` es a QUIÉN hay que decírselo,
+  y fecha_kind es cuándo ("mañana" -> manana; si no dicen nada -> hoy, nunca desconocida).
+  categoria="otros".
+- Todo lo demás es tipo="casa".
   Los items de compras siempre llevan categoria="compras" y fecha_kind="algun_dia".
 {_quienes_viven()}
 - categoria: limpieza, arreglos, tramites, pagos, mascotas, compras u otros.
@@ -128,10 +181,9 @@ Reglas:
   recur_monthday=10, "todos los martes" -> semanal con recur_weekday=1.
 - Campos numéricos que no aplican: mandá -1.
 - texto: corto, en infinitivo, sin la parte de la fecha ni el nombre del responsable.
+  (Los recados son la excepción: van tal como los dijeron.)
 - Si algo es muy ambiguo y no sabés si es una tarea o qué significa,
   poné necesita_aclaracion=true y escribí una pregunta corta y tierna.
-- Si el mensaje es pura charla (un saludo, un chiste, una pregunta al bot),
-  devolvé es_tarea=false, items=[] y un comentario breve.
 """
 
 
@@ -174,7 +226,8 @@ def probar_conexion(key: str | None = None, model: str | None = None) -> tuple[b
     if r.status_code == 404:
         return False, f"el modelo «{model}» no existe o no está habilitado para tu key"
     if r.status_code == 429:
-        return False, "te pasaste de la cuota gratuita, probá en un rato"
+        return False, ("se agotó la cuota gratuita de este modelo. Ojo que gemini-2.5-flash "
+                       "da sólo 20 mensajes por día: probá con gemini-flash-lite-latest")
     if r.status_code in REINTENTABLES:
         return False, f"el modelo está sobrecargado ({r.status_code}), no es tu culpa: probá en un rato"
     return False, f"HTTP {r.status_code}: {detalle[:160] or 'sin detalle'}"
@@ -207,8 +260,8 @@ def _call(prompt: str, schema: dict, sistema: str) -> dict | None:
                 headers={"Content-Type": "application/json"},
             )
             if r.status_code in REINTENTABLES:
-                # 429/503: cuota momentánea o modelo sobrecargado. Esperamos y probamos de nuevo,
-                # así el grupo no ve un "se me trabó la cabeza" por algo que se arregla solo.
+                # Modelo sobrecargado: se arregla en segundos, así que esperamos y probamos
+                # de nuevo antes de caer al modo local.
                 log.warning("Gemini %s (intento %d/%d)", r.status_code, intento, INTENTOS)
                 if intento < INTENTOS:
                     time.sleep(ESPERA * intento)

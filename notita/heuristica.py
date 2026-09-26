@@ -77,6 +77,88 @@ RUIDO = re.compile(r"^(?:(?:ja|je|ji|ha|sh)+|ok|oka|okey|dale|listo|si|sip|no|no
                    r"bien|todo bien|chau|xd|uh|ah|eh|m+|bueno|obvio|claro)$")
 
 
+# Intenciones que se reconocen sin LLM. Se prueban en orden.
+INTENCIONES = (
+    ("ver_super", r"(mostrame|pasame|dame|ver|cual es|leeme|que hay en).{0,20}"
+                  r"(super|supermercado|compras|mandados)"
+                  r"|^(super|compras|lista del super)\??$"
+                  r"|que (falta|hay que) comprar"),
+    ("ver_algun_dia", r"(algun dia|sin fecha)\b.{0,15}(que|cuales|mostrame|tengo|hay)"
+                      r"|(mostrame|pasame|dame|ver).{0,20}(algun dia|sin fecha)"),
+    ("ver_pendientes", r"(que|cuales|cuanto).{0,25}(hay que hacer|tenemos (que hacer|pendiente)"
+                       r"|queda|falta hacer|hay pendiente|esta pendiente|pendientes)"
+                       r"|(mostrame|pasame|dame|ver|leeme|listame).{0,20}"
+                       r"(tareas|pendientes|lista|todo|que hacer)"
+                       r"|^(tareas|pendientes|la lista)\??$"),
+    ("ver_ayuda", r"(como (funciona|te uso|se usa|andas)|que (sabes|podes) hacer"
+                  r"|para que servis|ayuda|help)"),
+    ("completar", r"^(ya |listo,? ?)(esta|estan)? ?(hecho|hecha|hice|hicimos|termine|terminamos|"
+                  r"limpie|limpiamos|pague|pagamos|llame|llamamos|saque|sacamos|compre|compramos|"
+                  r"arregle|arreglamos|ordene|ordenamos|regue|regamos)"
+                  r"|^(hecho|listo|ya esta|ya fue)\b"),
+    ("borrar", r"^(borra|borrame|elimina|saca|sacame|cancela|olvidate|olvidalo|no importa)\b"),
+)
+
+# Palabras a sacar de la referencia («borrá la de la heladera» -> «heladera»).
+RUIDO_REFERENCIA = re.compile(
+    r"^(ya|listo|borra|borrame|elimina|saca|sacame|cancela|olvidate de|olvidate|"
+    r"esta|estan|hecho|hecha|hice|hicimos|termine|terminamos|limpie|limpiamos|pague|"
+    r"pagamos|llame|llamamos|saque|sacamos|compre|compramos|arregle|arreglamos|ordene|"
+    r"ordenamos|regue|regamos|lo de|la de|el de|lo del|la del|de|el|la|los|las|que|"
+    r"tarea|tema)\b\s*")
+
+# «decile a Axel que lo amo», «avisale a Barbu que llego tarde»
+RECADO = re.compile(r"^(?:decile|decil|dile|avisale|avisa|contale|mandale|deciles)\s+"
+                    r"(?:a\s+)?(?P<quien>[\wáéíóúñ]+)\s*(?:,|\s)?\s*"
+                    r"(?:que\s+)?(?P<mensaje>.+)$", re.IGNORECASE)
+
+
+def _intencion(texto: str) -> tuple[str, str] | None:
+    """Devuelve (intencion, referencia) si reconoce un pedido que no sea anotar."""
+    t = aplanar(texto).strip(" .!¡?¿,")
+    for intencion, patron in INTENCIONES:
+        m = re.search(patron, t)
+        if not m:
+            continue
+        if intencion not in ("completar", "borrar"):
+            return intencion, ""
+        # La referencia es lo que queda después del verbo.
+        resto = t[m.end():].strip() or t[m.start():].strip()
+        anterior = None
+        while resto != anterior:  # sacar el ruido en cadena
+            anterior = resto
+            resto = RUIDO_REFERENCIA.sub("", resto, count=1).strip()
+        return intencion, resto
+    return None
+
+
+def _recado(texto: str, autor: str) -> dict | None:
+    """«decile a Axel que lo amo» -> item de tipo recado."""
+    m = RECADO.match(texto.strip())
+    if not m:
+        return None
+    quien = aplanar(m.group("quien"))
+    destinatario = next((p.slug for p in config.PERSONAS_CASA
+                         if aplanar(p.nombre) == quien or p.slug == quien), None)
+    if destinatario is None or destinatario == autor:
+        return None
+    spec, mensaje = extraer_fecha(m.group("mensaje"))
+    # El "que" puede quedar en el medio: «decile a Axel mañana que lo amo».
+    mensaje = re.sub(r"^\s*que\s+", "", _limpiar(mensaje), flags=re.IGNORECASE)
+    if len(mensaje) < 2:
+        return None
+    item = _base(mensaje)
+    item.update({"tipo": "recado", "categoria": "otros", "responsable": destinatario,
+                 "fecha_kind": spec.kind if spec and spec.kind != "algun_dia" else "hoy"})
+    if spec:
+        for campo, valor in (("fecha_weekday", spec.weekday), ("fecha_day", spec.day),
+                             ("fecha_month", spec.month), ("fecha_year", spec.year),
+                             ("fecha_dias", spec.days)):
+            if valor is not None:
+                item[campo] = valor
+    return item
+
+
 def _charla(texto: str) -> str | None:
     """Si el mensaje es charla, devuelve la respuesta (puede ser ''). Si no, None."""
     t = aplanar(texto).strip(" .!¡?¿,")
@@ -240,14 +322,27 @@ def _fragmentar(texto: str) -> list[str]:
     return pedazos
 
 
-def interpretar(texto: str) -> dict:
+def interpretar(texto: str, autor: str = "ninguno") -> dict:
     """Misma forma que `llm.interpretar_mensaje`, pero sin salir a internet."""
     charla = _charla(texto)
     if charla is not None:
-        return {"es_tarea": False, "comentario": charla, "items": [], "local": True}
+        return {"intencion": "charla", "es_tarea": False, "comentario": charla,
+                "items": [], "local": True}
+
+    pedido = _intencion(texto)
+    if pedido:
+        intencion, referencia = pedido
+        return {"intencion": intencion, "referencia": referencia, "categoria_filtro": "",
+                "es_tarea": False, "comentario": "", "items": [], "local": True}
+
+    recado = _recado(texto, autor)
+    if recado:
+        return {"intencion": "anotar", "es_tarea": True, "comentario": "",
+                "items": [recado], "local": True}
 
     items = [i for i in (_item(f) for f in _fragmentar(texto)) if i]
     _contagiar_compras(items)
     if not items:  # no pudimos sacar nada en limpio: lo guardamos tal cual
         items = [item_crudo(texto)]
-    return {"es_tarea": True, "comentario": "", "items": items, "local": True}
+    return {"intencion": "anotar", "es_tarea": True, "comentario": "",
+            "items": items, "local": True}

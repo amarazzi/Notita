@@ -26,7 +26,23 @@ le hablarías a una persona, y él organiza, pregunta y recuerda.
 | Posponer | mañana · finde · semana que viene · elegir fecha |
 | Posponer cargoso | a partir de la 3ª vez te carga un poquito 😅 |
 | Resumen semanal | domingos 20:00, agrupado por día + vencidas + «algún día» |
+| Recados 💌 | «decile a Axel mañana que lo amo» → se lo dice a las 20:00, mencionándolo |
+| Entiende pedidos | «¿qué hay que hacer?», «mostrame el súper», «ya limpié la heladera», «borrá la del plomero» |
 | Aguanta sin internet | si Gemini falla, interpreta con reglas locales y no pierde la tarea |
+
+### No hace falta aprender comandos
+
+Todo se puede pedir hablando normal; los comandos son un atajo, no el camino principal.
+
+| Le escribís | Hace |
+|---|---|
+| «¿qué hay que hacer?» | lo mismo que `/todo` |
+| «mostrame las de limpieza» | lo mismo que `/todo limpieza` |
+| «mostrame la lista del súper» | lo mismo que `/super` |
+| «ya limpié la heladera» | la tacha (y si era recurrente, crea la próxima) |
+| «borrá la del plomero» | la borra; si hay varias parecidas, pregunta cuál |
+| «decile a Axel mañana que lo amo» | se lo dice mañana a las 20:00 |
+| «¿cómo funcionás?» | lo mismo que `/ayuda` |
 
 ### Comandos
 
@@ -93,11 +109,19 @@ normales, que es casi todo lo que hace Notita.
 Un grupo con las personas de la casa y el bot adentro. No hace falta que busques el
 `chat_id` ni los `user_id`: el instalador los detecta solos.
 
+**¿Lo querés para vos solo?** Escribile por privado al bot y listo, sin grupo. El
+instalador también detecta los chats privados.
+
 ### 3. Sacar la API key de Gemini (opcional)
 
 En [Google AI Studio](https://aistudio.google.com/apikey) → *Create API key*. Es gratis y
 no pide tarjeta. Si no querés, salteala: Notita funciona igual en [modo
 local](#modo-local-sin-gemini).
+
+> ⚠️ **Ojo con el modelo.** En la capa gratuita, `gemini-2.5-flash` da sólo **20 mensajes
+> por día** (`quotaId: GenerateRequestsPerDayPerProjectPerModel-FreeTier`), que no alcanza
+> para una casa. Por eso el default es `gemini-flash-lite-latest`, que tiene mucha más.
+> Si se agota, `doctor.py` te lo dice con nombre y apellido.
 
 ### 4. Instalar
 
@@ -216,7 +240,7 @@ NOTITA_CONTEXTO=Tenemos un gato que se llama Milo. Vivimos en un PH con patio.
 ### 5. API key de Gemini
 
 En [Google AI Studio](https://aistudio.google.com/apikey) → *Create API key*. Es gratis.
-El modelo por defecto es `gemini-2.5-flash`.
+El modelo por defecto es `gemini-flash-lite-latest` (ver el aviso de cuota más arriba).
 
 Es **opcional**: sin key, Notita arranca en **modo local** (ver más abajo).
 
@@ -325,7 +349,7 @@ ALLOWED_CHAT_ID=-1001234567890
 NOTITA_PERSONAS=Axel:11111111,Barbu:22222222
 CRON_SECRET=                      # sólo si usás la opción B
 GEMINI_API_KEY=...
-GEMINI_MODEL=gemini-2.5-flash
+GEMINI_MODEL=gemini-flash-lite-latest
 ```
 
 | Variable | Para qué |
@@ -337,7 +361,7 @@ GEMINI_MODEL=gemini-2.5-flash
 | `NOTITA_CONTEXTO` | Opcional: dato libre de la casa para que el LLM acierte mejor |
 | `CRON_SECRET` | Habilita `/cron/recordatorios` (opción B). **Vacío = ruta apagada** |
 | `GEMINI_API_KEY` | La key de Google AI Studio |
-| `GEMINI_MODEL` | Por defecto `gemini-2.5-flash` |
+| `GEMINI_MODEL` | Por defecto `gemini-flash-lite-latest` |
 | `NOTITA_DB` | Opcional: ruta del archivo SQLite |
 
 Después de tocar el `.env` hay que hacer **Reload** de la web app.
@@ -393,7 +417,8 @@ algo roto.
 |---|---|
 | No contesta nada | Falta el Reload, o hay un error en el *Error log* de la pestaña Web |
 | Sólo contesta los comandos | Privacy mode encendido: apagalo y re-agregá el bot al grupo |
-| «Se me trabó la cabeza un segundo» | Gemini falló: key, modelo o cuota. `doctor.py` te dice cuál |
+| «Lo anoté a mano, no me salió pensar» | Gemini falló y entró el modo local. Casi siempre es la **cuota del modelo**: `doctor.py` te dice cuál |
+| Anota bien pero no entiende pedidos | Estás en modo local (sin key, o la cuota agotada): ahí los pedidos se reconocen por palabras clave, no siempre |
 | Mensajes encolados creciendo | La web app está caída y Telegram sigue reintentando |
 
 ---
@@ -415,7 +440,7 @@ También desde el grupo: `/recordatorios`.
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt pytest
 cp .env.example .env
-pytest                 # 240 tests, sin red ni API keys
+pytest                 # 291 tests, sin red ni API keys
 python app.py          # http://localhost:5000
 ```
 

@@ -11,7 +11,7 @@ import random
 from datetime import date
 
 from . import config, db, telegram, views
-from .dates import de_iso, formato_humano, hoy, iso
+from .dates import ahora, de_iso, formato_humano, hoy, iso
 
 log = logging.getLogger("notita.reminders")
 
@@ -42,7 +42,14 @@ def correr_rutina_diaria(ref: date | None = None, forzar: bool = False,
         log.error("No hay ALLOWED_CHAT_ID configurado")
         return {"error": "sin chat_id"}
 
-    resultado = {"fecha": ref.isoformat(), "resumen": False, "recordatorios": 0}
+    resultado = {"fecha": ref.isoformat(), "resumen": False, "recordatorios": 0, "recados": 0}
+
+    # Los recados van primero: son lo más lindo de recibir.
+    for row in db.recados_hasta(chat_id, ref):
+        telegram.enviar(chat_id, views.render_recado(row))
+        db.actualizar(row["id"], estado="hecha",
+                      completed_at=ahora().isoformat(timespec="seconds"))
+        resultado["recados"] += 1
 
     if ref.weekday() == 6:  # domingo
         telegram.enviar(chat_id, views.render_resumen_semanal(chat_id, ref))

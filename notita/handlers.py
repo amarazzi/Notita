@@ -124,6 +124,70 @@ def _match_categoria(arg: str) -> str | None:
 # Alta de tareas
 # --------------------------------------------------------------------------
 
+def _despachar_intencion(chat_id: int, data: dict, autor: str) -> bool:
+    """Si el mensaje pedía algo que no es anotar, lo hace y devuelve True.
+
+    Notita ya sabía mostrar, completar y borrar, pero sólo por comando. Nadie se
+    acuerda de los comandos, así que también se entiende hablando normal.
+    """
+    intencion = data.get("intencion") or ("anotar" if data.get("es_tarea") else "charla")
+    if intencion in ("anotar", "charla"):
+        return False
+
+    if intencion == "ver_pendientes":
+        categoria = data.get("categoria_filtro") or None
+        if categoria not in config.CATEGORIAS:
+            categoria = None
+        telegram.enviar(chat_id, views.render_todo(chat_id, categoria))
+    elif intencion == "ver_super":
+        t, kb = views.render_super(chat_id)
+        telegram.enviar(chat_id, t, kb)
+    elif intencion == "ver_algun_dia":
+        telegram.enviar(chat_id, views.render_algun_dia(chat_id))
+    elif intencion == "ver_ayuda":
+        telegram.enviar(chat_id, views.AYUDA)
+    elif intencion in ("completar", "borrar"):
+        _resolver_por_texto(chat_id, intencion, data.get("referencia") or "", autor)
+    else:
+        return False
+    return True
+
+
+def _resolver_por_texto(chat_id: int, accion: str, referencia: str, autor: str) -> None:
+    """«ya limpié la heladera» / «borrá la del plomero»."""
+    if not referencia.strip():
+        telegram.enviar(chat_id, "¿Cuál de todas? Pasame /todo y decime 🤍")
+        return
+
+    candidatas = db.buscar(chat_id, referencia)
+    if not candidatas:
+        telegram.enviar(
+            chat_id,
+            f"No encontré nada parecido a «{telegram.escapar(referencia)}». Mirá /todo 👀")
+        return
+
+    # Si la mejor le saca clara ventaja a la segunda, no preguntamos.
+    clara = len(candidatas) == 1 or candidatas[0][0] - candidatas[1][0] >= 0.25
+    if not clara:
+        opciones = candidatas[:4]
+        prefijo = "h" if accion == "completar" else "b"
+        teclado = [[{"text": r["texto"][:50], "callback_data": f"{prefijo}:{r['id']}"}]
+                   for _, r in opciones]
+        telegram.enviar(chat_id, "¿Cuál de estas?", teclado)
+        return
+
+    row = candidatas[0][1]
+    if accion == "completar":
+        nueva = db.marcar_hecha(row["id"], autor)
+        texto = f"✅ <s>{telegram.escapar(row['texto'])}</s>"
+        if nueva is not None:
+            texto += f"\n🔁 La próxima: {formato_humano(de_iso(nueva['due_date']), hoy())}"
+    else:
+        db.borrar(row["id"])
+        texto = f"🗑️ <s>{telegram.escapar(row['texto'])}</s>"
+    telegram.enviar(chat_id, texto)
+
+
 def _interpretar_y_guardar(chat_id: int, texto: str, autor: str,
                            contexto_previo: str | None = None) -> None:
     ref = hoy()
@@ -132,7 +196,10 @@ def _interpretar_y_guardar(chat_id: int, texto: str, autor: str,
     # Sin Gemini configurado, o si no contestó, lo interpretamos acá nomás.
     # Peor que el LLM, pero la tarea nunca se pierde.
     if data is None:
-        data = heuristica.interpretar(texto)
+        data = heuristica.interpretar(texto, autor)
+
+    if _despachar_intencion(chat_id, data, autor):
+        return
 
     items = data.get("items") or []
     if not data.get("es_tarea") or not items:
@@ -150,11 +217,20 @@ def _interpretar_y_guardar(chat_id: int, texto: str, autor: str,
             telegram.enviar(chat_id, telegram.escapar(pregunta))
             return
 
-        tipo = item.get("tipo") if item.get("tipo") in ("casa", "compras") else "casa"
+        tipo = item.get("tipo") if item.get("tipo") in ("casa", "compras", "recado") else "casa"
         categoria = item.get("categoria") if item.get("categoria") in config.CATEGORIAS else "otros"
         responsable = item.get("responsable") if item.get("responsable") in config.PERSONAS else "ninguno"
+        if tipo == "recado" and responsable in ("ninguno", ""):
+            # Un recado sin destinatario no se puede entregar: es una tarea común.
+            tipo = "casa"
         if tipo == "compras":
             categoria, due, rec, spec = "compras", None, None, DateSpec("algun_dia")
+        elif tipo == "recado":
+            # Sin fecha, se entrega en la próxima pasada de las 20:00.
+            spec = llm.spec_de_item(item)
+            if spec.kind in ("desconocida", "algun_dia"):
+                spec = DateSpec("hoy")
+            categoria, rec, due = "otros", None, resolve(spec, ref)
         else:
             spec = llm.spec_de_item(item)
             rec = llm.recurrencia_de_item(item)
@@ -179,7 +255,10 @@ def _interpretar_y_guardar(chat_id: int, texto: str, autor: str,
         if tipo == "casa" and due is None and spec.kind not in ("algun_dia",):
             sin_fecha.append(task_id)
 
+    solo_recados = all(i.get("tipo") == "recado" for i in items)
     encabezado = "Anotado 🤍" if len(confirmaciones) == 1 else f"Anoté {len(confirmaciones)} cositas 🤍"
+    if solo_recados:
+        encabezado = "Dale, se lo digo 🤍" if len(confirmaciones) == 1 else "Dale, se los digo 🤍"
     # Si Gemini estaba configurado pero no contestó, avisamos que lo leímos a mano.
     if data.get("local") and llm.disponible():
         encabezado = "Lo anoté a mano, no me salió pensar 🤍 revisá que esté bien:"

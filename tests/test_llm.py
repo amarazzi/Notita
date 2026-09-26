@@ -59,7 +59,19 @@ def test_modelo_inexistente(monkeypatch):
 
 def test_cuota_agotada(monkeypatch):
     fake_post(monkeypatch, FakeResponse(429, {"error": {"message": "quota"}}))
-    assert llm.probar_conexion(key="k")[1] == "te pasaste de la cuota gratuita, probá en un rato"
+    bien, detalle = llm.probar_conexion(key="k")
+    assert bien is False
+    assert "cuota gratuita" in detalle
+    # El mensaje tiene que decir qué hacer: gemini-2.5-flash da 20 por día.
+    assert "gemini-flash-lite-latest" in detalle
+
+
+def test_un_429_no_se_reintenta(monkeypatch, sin_esperas):
+    """Es cuota por día: reintentar no sirve y gasta más. Mejor caer al modo local."""
+    monkeypatch.setattr(config, "GEMINI_API_KEY", "k")
+    llamadas = respuestas_en_orden(monkeypatch, [FakeResponse(429, {"error": {}})])
+    assert llm.interpretar_mensaje("algo", "axel") is None
+    assert len(llamadas) == 1
 
 
 def test_error_raro_muestra_el_http(monkeypatch):

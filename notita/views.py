@@ -62,7 +62,16 @@ def teclado_super(rows) -> list:
 # --------------------------------------------------------------------------
 
 def emoji(row: sqlite3.Row) -> str:
+    if row["tipo"] == "recado":
+        return "💌"
     return config.CATEGORIA_EMOJI.get(row["categoria"], "📌")
+
+
+def render_recado(row: sqlite3.Row) -> str:
+    """Lo que se manda al grupo el día que toca entregarlo."""
+    de = config.NOMBRES.get(row["created_by"], "alguien")
+    para = mencion(row["responsable"])
+    return f"💌 {para}, {escapar(de)} te manda a decir:\n«{texto_tarea(row)}»"
 
 
 def sufijo_responsable(row: sqlite3.Row, con_mencion: bool = False) -> str:
@@ -101,6 +110,11 @@ def linea_tarea(row: sqlite3.Row, ref: date, mostrar_fecha: bool = True,
 
 def confirmacion(row: sqlite3.Row, ref: date) -> str:
     """Misma línea que en /tareas, pero siempre dice para cuándo (o que va al súper)."""
+    if row["tipo"] == "recado":
+        a_quien = config.NOMBRES.get(row["responsable"], row["responsable"])
+        cuando = formato_humano(de_iso(row["due_date"]), ref)
+        return (f"💌 A {escapar(a_quien)} · <i>{cuando} a las 20:00</i>\n"
+                f"   «{texto_tarea(row)}»")
     cuando = "al súper" if row["tipo"] == "compras" else formato_humano(de_iso(row["due_date"]), ref)
     partes = [f"{emoji(row)} {texto_tarea(row)}", f"<i>{cuando}</i>"]
     resp = sufijo_responsable(row).removeprefix(" · ")
@@ -247,21 +261,25 @@ def render_resumen_semanal(chat_id: int, ref: date) -> str:
 
 AYUDA = """Hola, soy <b>Notita</b> 🧲
 
-Escribime en el grupo lo que haya que hacer, así nomás:
+<b>Para anotar</b>, escribime así nomás:
 • «hay que limpiar la heladera y comprar focos» → lo separo en dos
-• «Barbu tiene que llamar al veterinario el lunes» → con fecha y responsable
+• «llamar al veterinario el lunes» → con fecha y responsable si lo nombrás
 • «falta leche» → va derecho a la lista del super
 • «cambiar las piedritas del gato cada semana» → se repite sola 🔁
 
-Si no me decís cuándo, te pregunto.
-A las 20:00 del día que vence te recuerdo y podés marcar ✅ Hecho, ⏰ Posponer o 🗑️ Borrar.
+<b>Para pedirme cosas</b>, también hablando normal:
+• «¿qué hay que hacer?» o «mostrame las de limpieza»
+• «mostrame la lista del super»
+• «ya limpié la heladera» → la tacho
+• «borrá la del plomero» → la borro
+
+<b>Para mandar un recado</b> 💌
+• «decile a Axel mañana que lo amo» → se lo digo yo a las 20:00
+
+Si no me decís cuándo es algo, te pregunto.
+A las 20:00 del día que vence te recuerdo, con ✅ Hecho, ⏰ Posponer y 🗑️ Borrar.
 Los domingos a las 20:00 te paso el resumen de la semana.
 
-Comandos:
-/todo — todo lo pendiente
-/todo limpieza — filtrado por categoría
-/algundia — lo que no tiene fecha
-/super — la lista del super
-/ayuda — esto
+Si preferís los comandos: /todo, /todo limpieza, /algundia, /super, /ayuda.
 
 Categorías: limpieza, arreglos, tramites, pagos, mascotas, compras, otros."""

@@ -213,9 +213,14 @@ def esperar_mensajes(token: str, espera: float | None = None, quieto: float | No
             offset = u.get("update_id", 0) + 1
             msg = u.get("message") or {}
             chat = msg.get("chat") or {}
-            if chat.get("type") not in ("group", "supergroup"):
+            autor_nombre = (msg.get("from") or {}).get("first_name") or "vos"
+            if chat.get("type") == "private":
+                # Notita también sirve para una sola persona, por privado.
+                grupos[chat["id"]] = f"privado con {autor_nombre}"
+            elif chat.get("type") in ("group", "supergroup"):
+                grupos[chat["id"]] = chat.get("title", "sin título")
+            else:
                 continue
-            grupos[chat["id"]] = chat.get("title", "sin título")
             autor = msg.get("from") or {}
             uid = autor.get("id")
             if uid and not autor.get("is_bot") and uid not in gente:
@@ -237,10 +242,11 @@ def esperar_mensajes(token: str, espera: float | None = None, quieto: float | No
 
 def paso_grupo_y_personas(token: str, usuario_bot: str) -> tuple[int, tuple[Persona, ...], str]:
     """Devuelve (chat_id, personas, webhook que había antes de empezar)."""
-    titulo(2, "El grupo y quiénes viven en la casa")
-    dato(f"1) Creá un grupo de Telegram y agregá a @{usuario_bot}.")
-    dato("2) Que CADA persona de la casa escriba un mensaje cualquiera en el grupo")
-    dato("   (con eso detecto el grupo y el user_id de cada uno, sin que busquen nada).")
+    titulo(2, "Dónde vive Notita y quién la usa")
+    dato(f"Si son varios en la casa: creá un grupo, agregá a @{usuario_bot}, y que")
+    dato("CADA persona escriba un mensaje cualquiera ahí.")
+    dato(f"Si lo vas a usar solo: escribile por privado a @{usuario_bot}, alcanza con eso.")
+    dato("(Así detecto el chat y el user_id de cada uno, sin que nadie busque nada.)")
 
     # getUpdates no anda si hay un webhook puesto, así que lo desconectamos un rato.
     # Guardamos cuál era para poder dejar todo como estaba si el wizard no lo reemplaza.
@@ -261,23 +267,23 @@ def paso_grupo_y_personas(token: str, usuario_bot: str) -> tuple[int, tuple[Pers
         gente.update(gente_nueva)
 
         if not grupos:
-            mal("No vi ningún mensaje en ningún grupo.")
-            dato(f"Chequeá que @{usuario_bot} esté EN el grupo (agregado, no sólo invitado).")
+            mal("No vi ningún mensaje.")
+            dato(f"Si es un grupo: chequeá que @{usuario_bot} esté agregado ahí.")
             dato("Los mensajes tienen que ser NUEVOS: escribí algo mientras yo espero.")
             dato("Si el privacy mode quedó encendido, probá escribiendo /todo en el grupo.")
             if confirmar("¿Espero de nuevo?"):
                 continue
-            raise SystemExit("  Cortamos acá. Volvé cuando el bot esté en el grupo.")
+            raise SystemExit("  Cortamos acá. Volvé cuando el bot esté en el chat.")
 
         if len(grupos) == 1:
             chat_id, nombre = next(iter(grupos.items()))
-            ok(f"Grupo detectado: «{nombre}» (chat_id {chat_id})")
+            ok(f"Chat detectado: «{nombre}» (chat_id {chat_id})")
         else:
-            print("  Encontré varios grupos:")
+            print("  Encontré varios chats:")
             opciones = list(grupos.items())
             for i, (cid, nombre) in enumerate(opciones, 1):
                 dato(f"{i}) {nombre} ({cid})")
-            elegido = preguntar("¿Cuál es el de la casa? (número)", "1")
+            elegido = preguntar("¿En cuál querés usar Notita? (número)", "1")
             try:
                 chat_id, nombre = opciones[int(elegido) - 1]
             except (ValueError, IndexError):

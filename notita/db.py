@@ -197,6 +197,45 @@ def vencen_entre(chat_id: int, desde: date, hasta: date):
         ).fetchall()
 
 
+def recados_hasta(chat_id: int, limite: date):
+    """Recados que ya toca entregar (la fecha de entrega llegó o pasó)."""
+    with conn() as c:
+        return c.execute(
+            """SELECT * FROM tasks
+               WHERE chat_id = ? AND estado = 'pendiente' AND tipo = 'recado'
+                 AND (due_date IS NULL OR due_date <= ?)
+               ORDER BY due_date, id""",
+            (chat_id, iso(limite)),
+        ).fetchall()
+
+
+def puntaje(referencia: str, texto: str) -> float:
+    """Qué tanto se parecen, de 0 a 1. Sirve para «borrá la de la heladera»."""
+    from difflib import SequenceMatcher
+
+    from .dates import normalizar
+
+    a, b = normalizar(referencia), normalizar(texto)
+    if not a or not b:
+        return 0.0
+    if a in b or b in a:
+        return 1.0
+    palabras_a = {p for p in a.split() if len(p) > 2}
+    palabras_b = {p for p in b.split() if len(p) > 2}
+    solape = len(palabras_a & palabras_b) / len(palabras_a) if palabras_a else 0.0
+    return max(solape, SequenceMatcher(None, a, b).ratio())
+
+
+def buscar(chat_id: int, referencia: str, minimo: float = 0.5) -> list[tuple[float, sqlite3.Row]]:
+    """Tareas pendientes que se parezcan a `referencia`, de la más parecida a la menos.
+
+    Los recados quedan afuera: no son cosas que se completen o se borren a mano.
+    """
+    candidatas = [(puntaje(referencia, r["texto"]), r)
+                  for r in pendientes(chat_id) if r["tipo"] != "recado"]
+    return sorted([c for c in candidatas if c[0] >= minimo], key=lambda c: -c[0])
+
+
 def sin_fecha(chat_id: int):
     with conn() as c:
         return c.execute(
