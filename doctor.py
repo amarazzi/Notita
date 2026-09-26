@@ -96,9 +96,10 @@ def revisar_entorno() -> None:
         ok(".env presente")
 
     ahora = datetime.now(config.TZ)
-    ok(f"Hora en Buenos Aires: {ahora:%H:%M} ({datetime.now(timezone.utc):%H:%M} UTC)")
-    if ahora.utcoffset().total_seconds() / 3600 != -3:
-        aviso("la zona horaria no da UTC−3, revisá la instalación de tzdata")
+    offset = ahora.utcoffset().total_seconds() / 3600
+    ok(f"Hora en {config.TZ_NOMBRE}: {ahora:%H:%M} "
+       f"(UTC{offset:+.0f}, son {datetime.now(timezone.utc):%H:%M} UTC)")
+    ok(f"La rutina va a las {config.HORA_RUTINA} = {config.hora_rutina_en_utc()} UTC")
 
 
 def revisar_bot() -> dict | None:
@@ -282,7 +283,7 @@ def revisar_recordatorios() -> None:
               "https://TU_USUARIO.pythonanywhere.com/cron/recordatorios\033[0m")
     else:
         ok("/cron/recordatorios apagada: usás la tarea diaria de PythonAnywhere (opción A)")
-        print("      \033[2m→ Tasks → Daily task → 23:00 UTC → "
+        print(f"      \033[2m→ Tasks → Daily task → {config.hora_rutina_en_utc()} UTC → "
               f"python3.13 {config.BASE_DIR}/run_reminders.py\033[0m")
     print("      \033[2m→ para probar ahora: python3 run_reminders.py --forzar\033[0m")
 

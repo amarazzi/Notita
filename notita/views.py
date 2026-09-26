@@ -136,7 +136,8 @@ def confirmacion(row: sqlite3.Row, ref: date) -> str:
         a_quien = config.NOMBRES.get(row["responsable"], row["responsable"])
         d = de_iso(row["due_date"])
         # Los de hoy se entregan en el momento; los de otro día, en la pasada de la noche.
-        cuando = "ahora mismo" if d == ref else f"{formato_humano(d, ref)} a las 20:00"
+        cuando = ("ahora mismo" if d == ref
+                  else f"{formato_humano(d, ref)} a las {config.HORA_RUTINA}")
         return (f"💌 A {escapar(a_quien)} · <i>{cuando}</i>\n"
                 f"   «{texto_tarea(row)}»")
     cuando = "al súper" if row["tipo"] == "compras" else formato_humano(de_iso(row["due_date"]), ref)
@@ -288,6 +289,11 @@ def render_resumen_semanal(chat_id: int, ref: date) -> str:
     return "\n".join(bloques)
 
 
+def ayuda() -> str:
+    """Se arma al vuelo para que la hora que dice sea la que está configurada."""
+    return AYUDA.replace("{hora}", config.HORA_RUTINA)
+
+
 AYUDA = """Hola, soy <b>Notita</b> 🧲
 
 <b>Para anotar</b>, escribime así nomás:
@@ -304,11 +310,11 @@ AYUDA = """Hola, soy <b>Notita</b> 🧲
 
 <b>Para mandar un recado</b> 💌
 • «avisale a Axel que llego en 10» → se lo digo en el momento
-• «decile a Axel mañana que compre pan» → se lo digo mañana a las 20:00
+• «decile a Axel mañana que compre pan» → se lo digo mañana a las {hora}
 
 Si no me decís cuándo es algo, te pregunto.
-A las 20:00 del día que vence te recuerdo, con ✅ Hecho, ⏰ Posponer y 🗑️ Borrar.
-Los domingos a las 20:00 te paso el resumen de la semana.
+A las {hora} del día que vence te recuerdo, con ✅ Hecho, ⏰ Posponer y 🗑️ Borrar.
+Los domingos a las {hora} te paso el resumen de la semana.
 
 Si preferís los comandos: /todo, /todo limpieza, /algundia, /super, /ayuda.
 

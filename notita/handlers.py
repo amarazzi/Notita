@@ -64,6 +64,17 @@ def _mensaje(msg: dict) -> None:
         telegram.enviar(chat_id, f"El chat_id de acá es <code>{chat_id}</code>")
         return
 
+    # Cuando un grupo se convierte en supergrupo, Telegram avisa una sola vez y el
+    # chat_id cambia para siempre. Sin esto el bot se queda mudo y nadie sabe por qué.
+    nuevo = msg.get("migrate_to_chat_id")
+    if nuevo and _autorizado(chat_id):
+        log.error("El grupo cambió de id: %s -> %s. Hay que actualizar ALLOWED_CHAT_ID",
+                  chat_id, nuevo)
+        telegram.enviar(nuevo, "⚠️ Telegram convirtió este grupo y le cambió el número.\n"
+                               f"Para que siga funcionando, poné <code>ALLOWED_CHAT_ID="
+                               f"{nuevo}</code> en el <code>.env</code> y recargá.")
+        return
+
     if not _autorizado(chat_id):
         log.info("Ignorando chat %s", chat_id)
         return
@@ -110,7 +121,7 @@ def _comando(chat_id: int, texto: str, autor: str) -> None:
         t, kb = views.render_super(chat_id)
         telegram.enviar_largo(chat_id, t, kb)
     elif cmd in ("/ayuda", "/help", "/start"):
-        telegram.enviar(chat_id, views.AYUDA)
+        telegram.enviar(chat_id, views.ayuda())
     elif cmd in ("/recordatorios", "/probar"):
         from .reminders import correr_rutina_diaria
 
@@ -156,7 +167,7 @@ def _despachar_intencion(chat_id: int, data: dict, autor: str) -> bool:
     elif intencion == "ver_algun_dia":
         telegram.enviar_largo(chat_id, views.render_algun_dia(chat_id))
     elif intencion == "ver_ayuda":
-        telegram.enviar(chat_id, views.AYUDA)
+        telegram.enviar(chat_id, views.ayuda())
     elif intencion in ("completar", "borrar"):
         _resolver_por_texto(chat_id, intencion, data.get("referencia") or "", autor)
     else:

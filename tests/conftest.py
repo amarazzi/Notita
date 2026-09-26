@@ -27,6 +27,9 @@ def entorno(tmp_path, monkeypatch):
     def sin_red(*a, **k):
         raise SalidaAInternet("un test intentó salir a internet de verdad")
 
+    # Se corta en Session.request, que es por donde pasan post, get, put y compañía:
+    # antes sólo estaba tapado `post` y un test nuevo con `get` habría salido a la red.
+    monkeypatch.setattr(requests.sessions.Session, "request", sin_red)
     monkeypatch.setattr(requests, "post", sin_red)
     # definir_personas recalcula varios globals, así que se restaura a mano.
     originales = config.PERSONAS_CASA

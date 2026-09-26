@@ -1,0 +1,27 @@
+name: tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  pytest:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # 3.10 es el mínimo (el código usa `X | None`); 3.13 es lo que corre en
+        # PythonAnywhere hoy.
+        python: ["3.10", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - run: pip install -r requirements.txt pytest pyflakes
+      - name: Tests
+        # Sin red ni API keys: si algún test intenta salir a internet, falla.
+        run: python -m pytest -q
+      - name: pyflakes
+        run: python -m pyflakes install.py doctor.py app.py run_reminders.py set_webhook.py notita/ tests/ docs/demo/

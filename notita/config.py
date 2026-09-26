@@ -18,7 +18,39 @@ try:  # pragma: no cover - conveniencia de desarrollo
 except Exception:  # pragma: no cover
     pass
 
-TZ = ZoneInfo("America/Argentina/Buenos_Aires")
+# Zona horaria de la casa. Por defecto Buenos Aires, pero se puede cambiar sin
+# tocar código: NOTITA_TZ=Europe/Madrid, por ejemplo.
+TZ_POR_DEFECTO = "America/Argentina/Buenos_Aires"
+
+
+def zona(nombre: str) -> tuple[str, ZoneInfo]:
+    """El nombre y la zona. Si el nombre está mal escrito, cae en la de casa."""
+    try:
+        return nombre, ZoneInfo(nombre)
+    except Exception:
+        return TZ_POR_DEFECTO, ZoneInfo(TZ_POR_DEFECTO)
+
+
+TZ_NOMBRE, TZ = zona(os.getenv("NOTITA_TZ", TZ_POR_DEFECTO))
+
+# A qué hora corre la rutina diaria. Esto NO la programa (eso lo hace el cron o la
+# tarea de PythonAnywhere): sirve para que los mensajes digan la hora correcta y
+# para que el instalador calcule el horario en UTC.
+HORA_RUTINA = os.getenv("NOTITA_HORA", "20:00")
+
+
+def hora_rutina_en_utc(hora: str | None = None) -> str:
+    """La hora de la rutina pasada a UTC, que es como se programan los crons."""
+    from datetime import datetime, timezone
+
+    try:
+        h, m = (int(x) for x in (hora or HORA_RUTINA).split(":"))
+        if not (0 <= h <= 23 and 0 <= m <= 59):
+            raise ValueError
+    except ValueError:
+        h, m = 20, 0
+    momento = datetime.now(TZ).replace(hour=h, minute=m, second=0, microsecond=0)
+    return momento.astimezone(timezone.utc).strftime("%H:%M")
 
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN", "")
 # Secreto que Telegram manda en el header X-Telegram-Bot-Api-Secret-Token.

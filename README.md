@@ -362,6 +362,8 @@ GEMINI_MODEL=gemini-flash-lite-latest
 | `TELEGRAM_WEBHOOK_SECRET` | Telegram lo manda en el header `X-Telegram-Bot-Api-Secret-Token`; el webhook rechaza lo que no coincida |
 | `NOTITA_PERSONAS` | Quiénes viven en la casa: `Nombre:user_id` separados por coma |
 | `NOTITA_CONTEXTO` | Opcional: dato libre de la casa para que el LLM acierte mejor |
+| `NOTITA_TZ` | Opcional: zona horaria. Por defecto `America/Argentina/Buenos_Aires` |
+| `NOTITA_HORA` | Opcional: a qué hora corre la rutina. Por defecto `20:00` |
 | `CRON_SECRET` | Habilita `/cron/recordatorios` (opción B). **Vacío = ruta apagada** |
 | `GEMINI_API_KEY` | La key de Google AI Studio |
 | `GEMINI_MODEL` | Por defecto `gemini-flash-lite-latest` |
@@ -443,7 +445,7 @@ También desde el grupo: `/recordatorios`.
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt pytest
 cp .env.example .env
-pytest                 # 393 tests, sin red ni API keys
+pytest                 # 414 tests, sin red ni API keys
 python app.py          # http://localhost:5000
 ```
 
@@ -455,20 +457,47 @@ Para probar el webhook local podés usar cualquier túnel HTTPS y apuntarlo con
 
 ---
 
-## Plan B: Oracle Cloud Always Free
+## Plan B: en tu propio servidor (VPS, Oracle Always Free, una Raspberry)
 
-La lógica de recordatorios está aislada en `notita/reminders.py::correr_rutina_diaria()`,
-así que migrar es sólo cambiar quién la llama:
+Notita es una app Flask normal, así que corre en cualquier lado. Dos requisitos que
+Telegram impone y conviene tener claros:
+
+1. **El webhook necesita HTTPS con certificado válido.** No hay forma de usar `http://`
+   ni una IP pelada. La vía más simple y gratis es [Caddy](https://caddyserver.com), que
+   saca el certificado de Let's Encrypt solo, con un `Caddyfile` de dos líneas:
+
+   ```
+   notita.tudominio.com {
+       reverse_proxy 127.0.0.1:8000
+   }
+   ```
+
+   Si no tenés dominio, un túnel tipo Cloudflare Tunnel o ngrok también sirve.
+
+2. **La app tiene que estar siempre viva.** Con systemd:
+
+   ```ini
+   # /etc/systemd/system/notita.service
+   [Service]
+   WorkingDirectory=/opt/notita
+   ExecStart=/opt/notita/.venv/bin/gunicorn -w 2 -b 127.0.0.1:8000 app:app
+   Restart=always
+   [Install]
+   WantedBy=multi-user.target
+   ```
+
+Después, el webhook y la rutina diaria:
 
 ```bash
-# la web app con gunicorn detrás de nginx/caddy
-gunicorn -w 2 -b 127.0.0.1:8000 app:app
+python3 set_webhook.py https://notita.tudominio.com/telegram
 
-# y el cron de la VM (poné la VM en America/Argentina/Buenos_Aires)
+# cron de la VM. Si la VM está en la zona de tu casa, poné la hora tal cual;
+# si está en UTC, convertila (el default de Argentina son las 23:00 UTC).
 0 20 * * *  cd /opt/notita && /opt/notita/.venv/bin/python run_reminders.py
 ```
 
-Si la VM queda en UTC, usá `0 23 * * *`.
+Acá no hace falta `CRON_SECRET` ni la ruta `/cron/recordatorios`: con cron propio se
+llama directo al script. Y `python3 doctor.py` sirve igual para verificar todo.
 
 ---
 
@@ -495,6 +524,7 @@ notita/
   views.py              textos y teclados
 tests/                  fechas, recurrencias, personas, LLM, instalador y flujo completo
 docs/demo/              arma un GIF de demo actuando la conversación de verdad
+.github/workflows/      CI: corre los tests en Python 3.10 y 3.13
 ```
 
 Hay un generador de GIF de demostración (no se usa en el README). Corre la
@@ -507,18 +537,38 @@ python3 docs/demo/generar_gif.py
 
 ## ¿Lo puedo usar en mi casa?
 
-Sí, no hay nada atado a nosotros. Forkealo o clonalo, corré `install.py` y listo:
-los nombres, la cantidad de personas y el contexto de la casa salen del `.env`.
+Sí. Forkealo o clonalo, corré `install.py` y listo. Se configura sin tocar código:
 
-Lo que **sí** está fijado en el código, por decisión y no por descuido:
+| Variable | Qué cambia |
+|---|---|
+| `NOTITA_PERSONAS` | Quiénes viven en la casa, cualquier cantidad |
+| `NOTITA_TZ` | Zona horaria, ej. `Europe/Madrid`. Por defecto Buenos Aires |
+| `NOTITA_HORA` | A qué hora se manda todo, ej. `09:30`. Por defecto `20:00` |
+| `NOTITA_CONTEXTO` | Datos de la casa para que el LLM acierte mejor |
 
-- Zona horaria **America/Argentina/Buenos_Aires** y los textos en español rioplatense.
-  Si lo querés en otro lado, cambiá `TZ` en `config.py` y los textos de `views.py`.
-- Las **categorías** (`limpieza`, `arreglos`, `tramites`, `pagos`, `mascotas`, `compras`,
-  `otros`) están en `config.CATEGORIAS`. Se pueden cambiar ahí: el LLM las toma de esa
-  lista, no hay que tocar el prompt.
-- La **semana va de lunes a domingo** y el recordatorio es a las **20:00**.
+`NOTITA_HORA` **no** programa nada: eso lo hace el cron. Sirve para que los mensajes
+digan la hora correcta y para que el instalador y `doctor.py` te calculen el horario en
+UTC que hay que poner (`python3 -c "from notita import config; print(config.hora_rutina_en_utc())"`).
+
+Las **categorías** (`limpieza`, `arreglos`, `tramites`, `pagos`, `mascotas`, `compras`,
+`otros`) están en `config.CATEGORIAS`. Se pueden cambiar ahí: el LLM las toma de esa
+lista, no hay que tocar el prompt.
+
+### Lo que sí requiere trabajo
+
+**Está escrito en español rioplatense, y eso no es una variable de entorno.** Para usarlo
+en otro idioma hay que traducir los textos de `views.py`, `handlers.py` y `reminders.py`,
+el prompt de `llm.py`, y —lo más laborioso— el parser de fechas de `dates.py` y las
+palabras clave de `heuristica.py`, que están en castellano. Es un trabajo de un rato
+largo, no de configuración.
+
+La **semana va de lunes a domingo** (relevante para «esta semana» y el resumen) y el
+**resumen semanal sale los domingos**; las dos cosas están en el código.
 
 ## Fuera del MVP
 
 Audios, WhatsApp y cualquier cosa que cueste plata.
+
+### Licencia
+
+MIT, ver [LICENSE](LICENSE).

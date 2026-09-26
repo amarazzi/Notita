@@ -56,10 +56,16 @@ def detectar(entorno: dict | None = None, home: str | Path | None = None,
         return None
 
     usuario = entorno.get("USER") or Path(home or Path.home()).name
-    # Si hay varias web apps, la que empieza con el nombre de usuario es la del dominio
-    # gratuito; si no, la primera que haya.
+    # La del dominio gratuito empieza con el nombre de usuario. Si no hay ninguna así,
+    # puede ser un dominio propio: se acepta sólo si es la única, porque con varias
+    # elegir "la primera" significaría pisarle la web app de otro proyecto.
     propias = [w for w in wsgis if w.name.startswith(f"{usuario}_")]
-    elegido = (propias or wsgis or [None])[0]
+    if propias:
+        elegido = propias[0]
+    elif len(wsgis) == 1:
+        elegido = wsgis[0]
+    else:
+        elegido = None
     if elegido is None:
         dominio = f"{usuario}.{entorno.get('PYTHONANYWHERE_DOMAIN') or 'pythonanywhere.com'}"
         return Sitio(usuario=usuario, dominio=dominio,
