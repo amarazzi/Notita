@@ -239,6 +239,22 @@ def test_todo_filtra_por_categoria(enviados):
     assert "limpiar el baño" in texto and "pagar la luz" not in texto
 
 
+def test_la_tarea_se_escribe_igual_en_todos_lados(enviados):
+    """En el recordatorio decía «¿llamar al plomero?» y en la lista «Llamar al plomero»."""
+    tid = db.crear_tarea(CHAT, "llamar al plomero", categoria="arreglos", due=hoy())
+    reminders.correr_rutina_diaria(ref=hoy())
+    recordatorio = [e["text"] for e in enviados if e["metodo"] == "sendMessage"][0]
+
+    assert "Llamar al plomero" in recordatorio
+    assert "Llamar al plomero" in views.render_todo(CHAT)
+
+    handlers.handle_update({"callback_query": {
+        "id": "x", "data": f"h:{tid}", "from": {"id": 111},
+        "message": {"message_id": 1, "chat": {"id": CHAT}}}})
+    hecho = [e["text"] for e in enviados if e["metodo"] == "editMessageText"][-1]
+    assert "Llamar al plomero" in hecho
+
+
 def test_rutina_diaria_recuerda_vencidas_y_de_hoy(enviados):
     db.crear_tarea(CHAT, "sacar la basura", due=hoy())
     db.crear_tarea(CHAT, "pagar expensas", due=hoy() - timedelta(days=3))

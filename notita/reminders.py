@@ -68,7 +68,7 @@ def correr_rutina_diaria(ref: date | None = None, forzar: bool = False,
 
 
 def _texto_recordatorio(row, ref: date) -> str:
-    tarea = telegram.escapar(row["texto"])
+    tarea = views.texto_tarea(row)
     linea = random.choice(PREGUNTAS).format(tarea=f"<b>{tarea}</b>")
 
     partes = [f"{views.emoji(row)} {linea}"]

@@ -179,12 +179,12 @@ def _resolver_por_texto(chat_id: int, accion: str, referencia: str, autor: str) 
     row = candidatas[0][1]
     if accion == "completar":
         nueva = db.marcar_hecha(row["id"], autor)
-        texto = f"✅ <s>{telegram.escapar(row['texto'])}</s>"
+        texto = f"✅ <s>{views.texto_tarea(row)}</s>"
         if nueva is not None:
             texto += f"\n🔁 La próxima: {formato_humano(de_iso(nueva['due_date']), hoy())}"
     else:
         db.borrar(row["id"])
-        texto = f"🗑️ <s>{telegram.escapar(row['texto'])}</s>"
+        texto = f"🗑️ <s>{views.texto_tarea(row)}</s>"
     telegram.enviar(chat_id, texto)
 
 
@@ -279,7 +279,7 @@ def _preguntar_fecha(chat_id: int, task_id: int) -> None:
     db.set_pending(chat_id, "fecha", task_id=task_id)
     telegram.enviar(
         chat_id,
-        f"¿Para cuándo «{telegram.escapar(row['texto'])}»?",
+        f"¿Para cuándo «{views.texto_tarea(row)}»?",
         views.teclado_para_cuando(task_id),
     )
 
@@ -346,7 +346,7 @@ def _callback(cq: dict) -> None:
         return
     if row["estado"] != "pendiente" and accion in ("h", "c", "p", "b"):
         telegram.responder_callback(cq_id, "Ya estaba resuelta")
-        telegram.editar(chat_id, message_id, f"✅ <s>{telegram.escapar(row['texto'])}</s>")
+        telegram.editar(chat_id, message_id, f"✅ <s>{views.texto_tarea(row)}</s>")
         return
 
     if accion == "h":
@@ -359,7 +359,7 @@ def _callback(cq: dict) -> None:
     elif accion == "b":
         db.borrar(task_id)
         telegram.responder_callback(cq_id, "Borrada")
-        telegram.editar(chat_id, message_id, f"🗑️ <s>{telegram.escapar(row['texto'])}</s>")
+        telegram.editar(chat_id, message_id, f"🗑️ <s>{views.texto_tarea(row)}</s>")
     elif accion == "p":
         _posponer(chat_id, message_id, cq_id, row, extra)
     elif accion == "f":
@@ -371,7 +371,7 @@ def _callback(cq: dict) -> None:
 def _marcar_hecha(chat_id: int, message_id: int, cq_id: str, row, quien: str) -> None:
     nueva = db.marcar_hecha(row["id"], quien)
     telegram.responder_callback(cq_id, "¡Hecho! 🎉")
-    final = f"✅ <s>{telegram.escapar(row['texto'])}</s>"
+    final = f"✅ <s>{views.texto_tarea(row)}</s>"
     if quien != "ninguno":
         final += f" — {telegram.escapar(config.NOMBRES.get(quien, quien))}"
     if nueva is not None:
@@ -385,7 +385,7 @@ def _posponer(chat_id: int, message_id: int, cq_id: str, row, extra: str | None)
         telegram.responder_callback(cq_id)
         telegram.editar(
             chat_id, message_id,
-            f"⏰ ¿Para cuándo movemos «{telegram.escapar(row['texto'])}»?",
+            f"⏰ ¿Para cuándo movemos «{views.texto_tarea(row)}»?",
             views.teclado_posponer(task_id),
         )
         return
@@ -395,7 +395,7 @@ def _posponer(chat_id: int, message_id: int, cq_id: str, row, extra: str | None)
         db.set_pending(chat_id, "fecha", task_id=task_id)
         telegram.responder_callback(cq_id)
         telegram.editar(chat_id, message_id,
-                        f"Decime para cuándo movemos «{telegram.escapar(row['texto'])}» 🗓️")
+                        f"Decime para cuándo movemos «{views.texto_tarea(row)}» 🗓️")
         return
 
     nueva = {
@@ -409,7 +409,7 @@ def _posponer(chat_id: int, message_id: int, cq_id: str, row, extra: str | None)
 
     veces = db.posponer(task_id, nueva)
     telegram.responder_callback(cq_id, "Dale, después")
-    texto = f"⏰ «{telegram.escapar(row['texto'])}» pasa para {formato_humano(nueva, ref)}"
+    texto = f"⏰ «{views.texto_tarea(row)}» pasa para {formato_humano(nueva, ref)}"
     if veces >= 3:
         texto += "\n" + random.choice(CHISTES_POSPONER).format(n=veces)
     telegram.editar(chat_id, message_id, texto)
@@ -422,7 +422,7 @@ def _respuesta_para_cuando(chat_id: int, message_id: int, cq_id: str, row, extra
         db.set_pending(chat_id, "fecha", task_id=task_id)
         telegram.responder_callback(cq_id)
         telegram.editar(chat_id, message_id,
-                        f"Decime la fecha de «{telegram.escapar(row['texto'])}» 🗓️")
+                        f"Decime la fecha de «{views.texto_tarea(row)}» 🗓️")
         return
 
     mapa = {
