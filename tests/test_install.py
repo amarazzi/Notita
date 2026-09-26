@@ -607,6 +607,43 @@ def test_demo_no_escribe_el_env_real_aunque_no_le_pasen_env(monkeypatch, tmp_pat
     assert install.ENV.name == "notita-demo.env"
 
 
+def test_cortar_a_mitad_de_camino_no_deja_el_bot_mudo(tmp_path, monkeypatch, telegram_falso):
+    """El caso real: se contesta «no» a «¿espero de nuevo?» y el wizard corta.
+
+    Para detectar el grupo hay que desconectar el webhook. Si el instalador se va
+    por ahí sin restaurarlo, el bot deja de recibir mensajes y nadie sabe por qué.
+    """
+    llamadas, estado = telegram_falso
+    estado["webhook"] = "https://yaandaba.pythonanywhere.com/telegram"
+    env = tmp_path / ".env"
+    env.write_text("TELEGRAM_WEBHOOK_SECRET=secreto-viejo\n")
+
+    tg_base = install.tg
+    monkeypatch.setattr(install, "tg",
+                        lambda t, m, **p: (True, []) if m == "getUpdates" else tg_base(t, m, **p))
+
+    with pytest.raises(SystemExit):
+        correr(monkeypatch, env, [TOKEN, "n"])  # "n" = no esperes de nuevo
+
+    assert any(m == "deleteWebhook" for m, _ in llamadas)
+    assert estado["webhook"] == "https://yaandaba.pythonanywhere.com/telegram"
+
+
+def test_un_error_inesperado_tampoco_deja_el_bot_mudo(tmp_path, monkeypatch, telegram_falso):
+    llamadas, estado = telegram_falso
+    estado["webhook"] = "https://yaandaba.pythonanywhere.com/telegram"
+
+    def explota(*a, **k):
+        raise RuntimeError("algo salió mal en el medio")
+
+    monkeypatch.setattr(install, "paso_gemini", explota)
+
+    with pytest.raises(RuntimeError):
+        correr(monkeypatch, tmp_path / ".env", guion()[:5])
+
+    assert estado["webhook"] == "https://yaandaba.pythonanywhere.com/telegram"
+
+
 def test_ctrl_c_despues_de_desconectar_deja_todo_como_estaba(telegram_falso):
     llamadas, estado = telegram_falso
     estado["webhook"] = ""

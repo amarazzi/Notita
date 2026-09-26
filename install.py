@@ -534,7 +534,16 @@ def main() -> None:
         print(f"  \033[33mModo ensayo:\033[0m voy a escribir en {ENV}")
 
     sitio = None if DEMO else pythonanywhere.detectar()
+    # Pase lo que pase de acá en adelante (Ctrl+C, un paso que corta con SystemExit,
+    # un error inesperado), el webhook que ya andaba tiene que quedar como estaba.
+    # Si no, el bot se queda mudo y nadie entiende por qué.
+    try:
+        _pasos(sitio)
+    finally:
+        restaurar_webhook()
 
+
+def _pasos(sitio) -> None:
     token, usuario_bot = paso_token()
     chat_id, personas, webhook_previo = paso_grupo_y_personas(token, usuario_bot)
     gemini_key, gemini_model = paso_gemini(personas)
@@ -595,9 +604,7 @@ def restaurar_webhook() -> None:
 
 if __name__ == "__main__":
     try:
-        main()
+        main()   # el webhook se restaura solo, en el finally de main()
     except KeyboardInterrupt:
-        print("\n\n  Cortado. No se guardó nada nuevo.")
-        restaurar_webhook()
-        print()
+        print("\n\n  Cortado. No se guardó nada nuevo.\n")
         sys.exit(1)
