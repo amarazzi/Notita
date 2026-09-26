@@ -21,10 +21,14 @@ import shutil
 import sys
 from pathlib import Path
 
-import requests
+from notita import deps
 
-from notita import config, llm
-from notita.config import Persona, slugificar
+deps.exigir("requests")  # antes de importarlas, para poder avisar bien
+
+import requests  # noqa: E402
+
+from notita import config, llm  # noqa: E402
+from notita.config import Persona, slugificar  # noqa: E402
 
 TG = "https://api.telegram.org/bot{token}/{metodo}"
 ENV = config.BASE_DIR / ".env"

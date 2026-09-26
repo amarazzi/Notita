@@ -14,9 +14,13 @@ import sqlite3
 import sys
 from datetime import datetime, timezone
 
-import requests
+from notita import deps
 
-from notita import config, db, llm
+deps.exigir("requests")  # antes de importarlas, para poder avisar bien
+
+import requests  # noqa: E402
+
+from notita import config, db, llm  # noqa: E402
 
 TG = "https://api.telegram.org/bot{token}/{metodo}"
 

@@ -14,7 +14,11 @@ import argparse
 import logging
 from datetime import date
 
-from notita.reminders import correr_rutina_diaria
+from notita import deps
+
+deps.exigir("requests")
+
+from notita.reminders import correr_rutina_diaria  # noqa: E402
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 

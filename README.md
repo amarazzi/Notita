@@ -350,9 +350,12 @@ También desde el grupo: `/recordatorios`.
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt pytest
 cp .env.example .env
-pytest                 # 194 tests, sin red ni API keys
+pytest                 # 200 tests, sin red ni API keys
 python app.py          # http://localhost:5000
 ```
+
+> Si te olvidás del `source .venv/bin/activate`, los scripts te avisan y te dicen qué
+> python usar, en vez de tirarte un `ModuleNotFoundError`.
 
 Para probar el webhook local podés usar cualquier túnel HTTPS y apuntarlo con
 `set_webhook.py`.
@@ -386,6 +389,7 @@ run_reminders.py        rutina de las 20:00 (cron / scheduler / modo prueba)
 set_webhook.py          alta, consulta y baja del webhook
 notita/
   config.py             variables de entorno, zona horaria, quiénes viven en la casa
+  deps.py               avisa qué falta instalar, en castellano
   dates.py              fechas y recurrencias — módulo puro, con tests
   db.py                 SQLite
   llm.py                Gemini con responseSchema

@@ -10,7 +10,11 @@ from __future__ import annotations
 import argparse
 import json
 
-from notita import config, telegram
+from notita import deps
+
+deps.exigir("requests")
+
+from notita import config, telegram  # noqa: E402
 
 
 def main() -> None:
