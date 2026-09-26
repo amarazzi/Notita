@@ -1,13 +1,15 @@
 # Notita 🧲
 
-Bot de Telegram que hace de todolist compartida de la casa para **Axel** y **Barbu**.
-Le escribís en el grupo como le hablarías a una persona, y él organiza, pregunta y recuerda.
+Bot de Telegram que hace de todolist compartida de la casa. Le escribís en el grupo como
+le hablarías a una persona, y él organiza, pregunta y recuerda.
 
 - Lenguaje natural con **Gemini** (capa gratuita), con salida estructurada en JSON.
+  Es opcional: sin API key funciona igual, con reglas locales.
 - **Las fechas las calcula el código**, nunca el LLM.
 - **SQLite**, sin servidor de base de datos.
 - **100% gratis**: PythonAnywhere free + Gemini free tier.
 - Todo en hora de Buenos Aires (`America/Argentina/Buenos_Aires`).
+- Sirve para **cualquier casa**: los nombres y la cantidad de personas salen del `.env`.
 
 ---
 
@@ -24,17 +26,26 @@ Le escribís en el grupo como le hablarías a una persona, y él organiza, pregu
 | Posponer | mañana · finde · semana que viene · elegir fecha |
 | Posponer cargoso | a partir de la 3ª vez te carga un poquito 😅 |
 | Resumen semanal | domingos 20:00, agrupado por día + vencidas + «algún día» |
+| Aguanta sin internet | si Gemini falla, interpreta con reglas locales y no pierde la tarea |
 
 ### Comandos
 
 ```
-/todo            todo lo pendiente (vencidas → con fecha → algún día → super)
+/todo            todo lo pendiente, agrupado por cuándo vence
 /todo limpieza   filtrado por categoría
 /algundia        sólo lo que no tiene fecha
 /super           la lista del super, con botones para tachar
 /ayuda           cómo usarlo
 /chatid          devuelve el chat_id (sirve para configurarlo la primera vez)
 /recordatorios   dispara a mano la rutina de las 20:00 (modo prueba)
+```
+
+Alias: `/tareas` = `/todo`, `/compras` = `/super`, `/probar` = `/recordatorios`.
+
+`/todo` agrupa por horizonte de tiempo, lo urgente arriba:
+
+```
+⚠️ VENCIDAS → HOY → MAÑANA → ESTA SEMANA → MÁS ADELANTE → ALGÚN DÍA → SÚPER
 ```
 
 Categorías: `limpieza`, `arreglos`, `tramites`, `pagos`, `mascotas`, `compras`, `otros`.
