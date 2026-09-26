@@ -143,8 +143,16 @@ python3.13 set_webhook.py https://USUARIO.pythonanywhere.com/telegram
 python3.13 set_webhook.py --info   # para chequear
 ```
 
-**Tarea diaria de las 20:00** (*Tasks* → Daily task).
-PythonAnywhere programa en **UTC** y Argentina es UTC−3 todo el año, así que:
+### 7. Las 20:00: elegí una de las dos opciones
+
+Los recordatorios de vencimiento y el resumen de los domingos salen en **una sola
+corrida** diaria (las cuentas gratuitas de PythonAnywhere permiten una única tarea
+diaria, y así tampoco se duplican mensajes).
+
+#### Opción A — Tarea diaria de PythonAnywhere (recomendada)
+
+Sin depender de nadie más. *Tasks* → **Daily task**. PythonAnywhere programa en **UTC**
+y Argentina es UTC−3 todo el año:
 
 | Hora Argentina | Hora que ponés en PythonAnywhere |
 |---|---|
@@ -156,12 +164,33 @@ Comando:
 python3.13 /home/USUARIO/Notita/run_reminders.py
 ```
 
-> Las cuentas gratuitas permiten **una** tarea diaria: por eso los recordatorios de
-> vencimiento y el resumen de los domingos salen en la misma corrida.
-> Acordate también de entrar cada 3 meses al botón *Run until 3 months from today*
-> de la web app, o PythonAnywhere la desactiva.
+Con esta opción **dejá `CRON_SECRET` vacío**: así la ruta `/cron/recordatorios` queda
+apagada (responde 404) y no hay una puerta extra abierta.
 
-### 7. Variables de entorno
+#### Opción B — Cron externo (cron-job.org)
+
+Útil si querés otro horario, más de una corrida por día, o si la tarea diaria te quedó
+desactivada. Poné un `CRON_SECRET` en el `.env`, recargá la web app y creá un cronjob
+gratuito en [cron-job.org](https://cron-job.org):
+
+- **URL**: `https://USUARIO.pythonanywhere.com/cron/recordatorios`
+- **Horario**: 23:00 UTC (o 20:00 si configuraste el timezone de la cuenta en Buenos Aires)
+- **Advanced** → **Headers**: `X-Cron-Secret` = el valor de `CRON_SECRET`
+
+La clave va **en el header, nunca en la URL**: las query strings quedan guardadas en el
+access log del servidor. Si falta o no coincide, la ruta responde 403.
+
+Para probarla a mano:
+
+```bash
+curl -H "X-Cron-Secret: TU_CRON_SECRET" \
+     https://USUARIO.pythonanywhere.com/cron/recordatorios
+```
+
+> Con cualquiera de las dos opciones, acordate de entrar cada 3 meses al botón
+> *Run until 3 months from today* de la web app, o PythonAnywhere la desactiva.
+
+### 8. Variables de entorno
 
 En PythonAnywhere no hay panel de variables, así que se leen del archivo `.env` en la
 raíz del proyecto (lo carga `python-dotenv`, tanto la web app como la tarea diaria).
@@ -170,15 +199,20 @@ raíz del proyecto (lo carga `python-dotenv`, tanto la web app como la tarea dia
 TELEGRAM_TOKEN=...
 TELEGRAM_WEBHOOK_SECRET=algo-largo-y-random
 ALLOWED_CHAT_ID=-1001234567890
+CRON_SECRET=                      # sólo si usás la opción B
 AXEL_USER_ID=...
 BARBU_USER_ID=...
 GEMINI_API_KEY=...
 GEMINI_MODEL=gemini-2.5-flash
 ```
 
-`ALLOWED_CHAT_ID` es la única puerta de entrada: el bot ignora cualquier otro chat.
-`TELEGRAM_WEBHOOK_SECRET` lo manda Telegram en el header `X-Telegram-Bot-Api-Secret-Token`
-y el webhook rechaza lo que no coincida.
+| Variable | Para qué |
+|---|---|
+| `ALLOWED_CHAT_ID` | La única puerta de entrada: el bot ignora cualquier otro chat |
+| `TELEGRAM_WEBHOOK_SECRET` | Telegram lo manda en el header `X-Telegram-Bot-Api-Secret-Token`; el webhook rechaza lo que no coincida |
+| `CRON_SECRET` | Habilita `/cron/recordatorios` (opción B). **Vacío = ruta apagada** |
+
+Después de tocar el `.env` hay que hacer **Reload** de la web app.
 
 ---
 
@@ -199,7 +233,7 @@ También desde el grupo: `/recordatorios`.
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt pytest
 cp .env.example .env
-pytest                 # 67 tests, sin red ni API keys
+pytest                 # 77 tests, sin red ni API keys
 python app.py          # http://localhost:5000
 ```
 

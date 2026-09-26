@@ -40,14 +40,18 @@ def webhook():
     return jsonify(ok=True)
 
 
-
 @app.route("/cron/recordatorios", methods=["GET", "POST"])
 def cron_recordatorios():
-    """Dispara la rutina de las 20:00. La llama un cron externo (cron-job.org)."""
+    """Dispara la rutina de las 20:00. La llama un cron externo (cron-job.org).
+
+    La clave va en el header y no en la URL a propósito: las query strings
+    quedan escritas en el access log del servidor.
+    """
     if not config.CRON_SECRET:
         return jsonify(ok=False, error="cron apagado"), 404
-    recibido = request.headers.get("X-Cron-Secret") or request.args.get("clave", "")
-    if not hmac.compare_digest(recibido, config.CRON_SECRET):
+    # En bytes: compare_digest no admite str con caracteres no ASCII (tira TypeError).
+    recibido = request.headers.get("X-Cron-Secret", "").encode("utf-8", "replace")
+    if not hmac.compare_digest(recibido, config.CRON_SECRET.encode()):
         log.warning("Cron con clave invalida")
         return jsonify(ok=False), 403
     return jsonify(ok=True, resultado=correr_rutina_diaria())

@@ -5,7 +5,7 @@ import sqlite3
 from datetime import date
 
 from . import config, db
-from .dates import DIAS_NOMBRE, de_iso, formato_dia, formato_humano, hoy
+from .dates import DIAS_NOMBRE, de_iso, formato_humano, hoy
 from .telegram import escapar, mencion
 
 # --------------------------------------------------------------------------

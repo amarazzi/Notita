@@ -1,8 +1,6 @@
 """Tests del flujo completo, con el LLM y Telegram simulados."""
 from datetime import date, timedelta
 
-import pytest
-
 from notita import db, handlers, llm, reminders, views
 from notita.dates import Recurrencia, hoy
 
