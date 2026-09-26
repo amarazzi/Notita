@@ -26,7 +26,10 @@ le hablarías a una persona, y él organiza, pregunta y recuerda.
 | Posponer | mañana · finde · semana que viene · elegir fecha |
 | Posponer cargoso | a partir de la 3ª vez te carga un poquito 😅 |
 | Resumen semanal | domingos 20:00, agrupado por día + vencidas + «algún día» |
-| Recados 💌 | «decile a Axel mañana que lo amo» → se lo dice a las 20:00, mencionándolo |
+| Recados 💌 | «avisale a Axel que llego en 10» → se lo dice en el momento, mencionándolo. Con fecha («mañana que compre pan»), a las 20:00 |
+| No cansa | Si una tarea lleva varias noches sin hacerse, deja de mandar un mensaje por tarea y las junta todas en uno, con «patearlas una semana» |
+| Súper de una | Botón «compramos todo» en `/super`, y el resumen del domingo te dice cuántas cosas quedan |
+| No duplica | Si anotás algo que ya estaba, te lo dice en vez de guardarlo dos veces |
 | Entiende pedidos | «¿qué hay que hacer?», «mostrame el súper», «ya limpié la heladera», «borrá la del plomero» |
 | Aguanta sin internet | si Gemini falla, interpreta con reglas locales y no pierde la tarea |
 
@@ -440,7 +443,7 @@ También desde el grupo: `/recordatorios`.
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt pytest
 cp .env.example .env
-pytest                 # 358 tests, sin red ni API keys
+pytest                 # 393 tests, sin red ni API keys
 python app.py          # http://localhost:5000
 ```
 

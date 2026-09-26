@@ -56,7 +56,7 @@ def test_la_conversacion_del_gif_sigue_funcionando(eventos):
     assert "¿Para cuándo «Llamar al plomero»?" in todo
     assert "Llamar al plomero · <i>hoy</i>" in todo
     # Recado: se guarda y después se entrega mencionando a la persona.
-    assert "💌 A Axel · <i>hoy a las 20:00</i>" in todo
+    assert "💌 A Axel · <i>ahora mismo</i>" in todo   # los de hoy no esperan
     assert "Barbu te manda a decir" in todo
     # Y el recordatorio de las 20:00 que se marca hecho.
     assert "✅ <s>Llamar al plomero</s> — Axel" in todo

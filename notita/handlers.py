@@ -8,6 +8,7 @@ from datetime import date, timedelta
 from . import config, db, heuristica, llm, telegram, views
 from .dates import (
     DateSpec,
+    ahora,
     de_iso,
     formato_humano,
     hoy,
@@ -102,12 +103,12 @@ def _comando(chat_id: int, texto: str, autor: str) -> None:
                 telegram.enviar(chat_id, f"No conozco la categoría «{telegram.escapar(arg)}». "
                                          f"Probá con: {', '.join(config.CATEGORIAS)}")
                 return
-        telegram.enviar(chat_id, views.render_todo(chat_id, categoria))
+        telegram.enviar_largo(chat_id, views.render_todo(chat_id, categoria))
     elif cmd in ("/algundia", "/algun_dia"):
-        telegram.enviar(chat_id, views.render_algun_dia(chat_id))
+        telegram.enviar_largo(chat_id, views.render_algun_dia(chat_id))
     elif cmd in ("/super", "/compras"):
         t, kb = views.render_super(chat_id)
-        telegram.enviar(chat_id, t, kb)
+        telegram.enviar_largo(chat_id, t, kb)
     elif cmd in ("/ayuda", "/help", "/start"):
         telegram.enviar(chat_id, views.AYUDA)
     elif cmd in ("/recordatorios", "/probar"):
@@ -148,12 +149,12 @@ def _despachar_intencion(chat_id: int, data: dict, autor: str) -> bool:
         categoria = data.get("categoria_filtro") or None
         if categoria not in config.CATEGORIAS:
             categoria = None
-        telegram.enviar(chat_id, views.render_todo(chat_id, categoria))
+        telegram.enviar_largo(chat_id, views.render_todo(chat_id, categoria))
     elif intencion == "ver_super":
         t, kb = views.render_super(chat_id)
-        telegram.enviar(chat_id, t, kb)
+        telegram.enviar_largo(chat_id, t, kb)
     elif intencion == "ver_algun_dia":
-        telegram.enviar(chat_id, views.render_algun_dia(chat_id))
+        telegram.enviar_largo(chat_id, views.render_algun_dia(chat_id))
     elif intencion == "ver_ayuda":
         telegram.enviar(chat_id, views.AYUDA)
     elif intencion in ("completar", "borrar"):
@@ -220,6 +221,8 @@ def _interpretar_y_guardar(chat_id: int, texto: str, autor: str,
 
     confirmaciones: list[str] = []
     sin_fecha: list[int] = []
+    a_entregar: list[int] = []
+    repetidas: list[str] = []
     for item in items:
         if item.get("necesita_aclaracion") and len(items) == 1:
             pregunta = (item.get("pregunta") or "").strip() or "¿Cómo era esto? Contame un poco más."
@@ -255,9 +258,19 @@ def _interpretar_y_guardar(chat_id: int, texto: str, autor: str,
 
                 due = proxima_ocurrencia(rec, ref - timedelta(days=1))
 
+        texto_item = item.get("texto") or texto
+        # Si ya hay algo casi igual pendiente, no se anota de nuevo: los dos
+        # anotando "pagar expensas" el mismo día terminaban con dos tareas.
+        if tipo != "recado":
+            iguales = [r for _, r in db.buscar(chat_id, texto_item, minimo=0.85)
+                       if r["tipo"] == tipo]
+            if iguales:
+                repetidas.append(views.linea_tarea(iguales[0], ref))
+                continue
+
         task_id = db.crear_tarea(
             chat_id,
-            item.get("texto") or texto,
+            texto_item,
             tipo=tipo,
             categoria=categoria,
             responsable=responsable,
@@ -268,6 +281,12 @@ def _interpretar_y_guardar(chat_id: int, texto: str, autor: str,
         confirmaciones.append(views.confirmacion(db.obtener(task_id), ref))
         if tipo == "casa" and due is None and spec.kind not in ("algun_dia",):
             sin_fecha.append(task_id)
+        if tipo == "recado" and due == ref:
+            a_entregar.append(task_id)   # los de hoy no esperan a las 20:00
+
+    if repetidas and not confirmaciones:
+        telegram.enviar(chat_id, "Eso ya estaba anotado 👀\n" + "\n".join(repetidas))
+        return
 
     solo_recados = all(i.get("tipo") == "recado" for i in items)
     encabezado = "Anotado 🤍" if len(confirmaciones) == 1 else f"Anoté {len(confirmaciones)} cositas 🤍"
@@ -276,10 +295,26 @@ def _interpretar_y_guardar(chat_id: int, texto: str, autor: str,
     # Si Gemini estaba configurado pero no contestó, avisamos que lo leímos a mano.
     if data.get("local") and llm.disponible():
         encabezado = "Lo anoté a mano, no me salió pensar 🤍 revisá que esté bien:"
-    telegram.enviar(chat_id, encabezado + "\n" + "\n".join(confirmaciones))
+    cuerpo = encabezado + "\n" + "\n".join(confirmaciones)
+    if repetidas:
+        cuerpo += "\n\n<i>Ya estaban anotadas:</i>\n" + "\n".join(repetidas)
+    telegram.enviar(chat_id, cuerpo)
 
+    for task_id in a_entregar:
+        _entregar_recado(chat_id, task_id)
     for task_id in sin_fecha:
         _preguntar_fecha(chat_id, task_id)
+
+
+def _entregar_recado(chat_id: int, task_id: int) -> None:
+    """Un recado para hoy se dice en el momento: «avisale que llego en 10» no espera."""
+    row = db.obtener(task_id)
+    if row is None or row["estado"] != "pendiente":
+        return
+    if telegram.enviar(chat_id, views.render_recado(row)) is None:
+        return   # no salió: queda pendiente y lo agarra la pasada de las 20:00
+    db.actualizar(task_id, estado="hecha",
+                  completed_at=ahora().isoformat(timespec="seconds"))
 
 
 def _preguntar_fecha(chat_id: int, task_id: int) -> None:
@@ -346,6 +381,13 @@ def _callback(cq: dict) -> None:
 
     partes = data.split(":")
     accion = partes[0]
+    # Estos dos no son de una tarea puntual, así que se atienden antes de buscarla.
+    if accion == "vg":   # el mensaje que agrupa las vencidas de siempre
+        _vencidas_juntas(chat_id, message_id, cq_id, partes[1] if len(partes) > 1 else "")
+        return
+    if accion == "ct":   # «compramos todo» en la lista del súper
+        _compramos_todo(chat_id, message_id, cq_id, quien)
+        return
     task_id = int(partes[1]) if len(partes) > 1 and partes[1].isdigit() else 0
     extra = partes[2] if len(partes) > 2 else None
     row = db.obtener(task_id) if task_id else None
@@ -368,6 +410,7 @@ def _callback(cq: dict) -> None:
         telegram.responder_callback(cq_id, "Tachado 🛒")
         t, kb = views.render_super(chat_id)
         telegram.editar(chat_id, message_id, t, kb)
+
     elif accion == "b":
         db.borrar(task_id)
         telegram.responder_callback(cq_id, "Borrada")
@@ -378,6 +421,57 @@ def _callback(cq: dict) -> None:
         _respuesta_para_cuando(chat_id, message_id, cq_id, row, extra)
     else:
         telegram.responder_callback(cq_id)
+
+
+def _vencidas_juntas(chat_id: int, message_id: int, cq_id: str, opcion: str) -> None:
+    """Botones del mensaje agrupado. Se recalcula qué está vencido al tocarlo."""
+    from .reminders import UMBRAL_CANSANCIO
+
+    ref = hoy()
+    rows = [r for r in db.vencen_hasta(chat_id, ref)
+            if de_iso(r["due_date"]) and de_iso(r["due_date"]) < ref
+            and (r["recordada_veces"] or 0) >= UMBRAL_CANSANCIO]
+    if not rows:
+        telegram.responder_callback(cq_id, "Ya no quedan")
+        telegram.editar(chat_id, message_id, "✨ Ya no queda ninguna vencida")
+        return
+
+    if opcion == "s":
+        nueva = ref + timedelta(days=7)
+        for row in rows:
+            db.posponer(row["id"], nueva)
+            db.actualizar(row["id"], recordada_veces=0)
+        telegram.responder_callback(cq_id, "Dale, la semana que viene")
+        telegram.editar(
+            chat_id, message_id,
+            f"⏰ Listo: {len(rows)} para {formato_humano(nueva, ref)}.\n"
+            f"<i>Si alguna ya no va, borrala con «borrá la de…».</i>")
+        return
+
+    if opcion == "u":
+        telegram.responder_callback(cq_id)
+        telegram.editar(chat_id, message_id, "📋 Ahí van, de a una:")
+        for row in rows:
+            telegram.enviar(chat_id, f"{views.emoji(row)} <b>{views.texto_tarea(row)}</b>",
+                            views.teclado_recordatorio(row["id"], True))
+        return
+    telegram.responder_callback(cq_id)
+
+
+def _compramos_todo(chat_id: int, message_id: int, cq_id: str, quien: str) -> None:
+    """Tachar 15 cosas de a una, volviendo del súper, es un castigo."""
+    compras = db.pendientes(chat_id, tipo="compras")
+    if not compras:
+        telegram.responder_callback(cq_id, "Ya no queda nada")
+        telegram.editar(chat_id, message_id, "La lista del super está vacía 🛒")
+        return
+    for row in compras:
+        db.marcar_hecha(row["id"], quien)
+    telegram.responder_callback(cq_id, "¡Listo! 🛒")
+    telegram.editar(
+        chat_id, message_id,
+        f"✅ Tachadas las {len(compras)}:\n"
+        + "\n".join(f"<s>{views.texto_tarea(r)}</s>" for r in compras[:10]))
 
 
 def _marcar_hecha(chat_id: int, message_id: int, cq_id: str, row, quien: str) -> None:

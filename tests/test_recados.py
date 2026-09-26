@@ -57,15 +57,19 @@ def test_la_confirmacion_dice_a_quien_y_cuando(enviados, monkeypatch):
     assert "Te amo" in salida                # se muestra con mayúscula, como una nota
 
 
-def test_sin_fecha_se_entrega_hoy(enviados, monkeypatch):
+def test_sin_fecha_se_entrega_al_instante(enviados, monkeypatch):
+    """«avisale que llego en 10 minutos» no puede esperar a las 20:00."""
     fake_llm(monkeypatch, fecha_kind="desconocida")
     handlers.handle_update(mensaje("decile a axel que lo amo"))
 
-    r = db.pendientes(CHAT, tipo="recado")[0]
-    assert r["due_date"] == hoy().isoformat()
-    # Y no pregunta «¿para cuándo?»: un recado sin fecha es para hoy.
+    # Se entregó en el momento, así que ya no queda pendiente.
+    assert db.pendientes(CHAT, tipo="recado") == []
+    salida = textos(enviados)
+    assert "ahora mismo" in salida[0]              # la confirmación no promete las 20:00
+    assert "te manda a decir" in salida[1]         # y el recado ya salió
+    # Tampoco pregunta «¿para cuándo?».
     assert db.get_pending(CHAT) is None
-    assert all("cuándo" not in t for t in textos(enviados))
+    assert all("cuándo" not in t for t in salida)
 
 
 def test_sin_destinatario_es_una_tarea_comun(enviados, monkeypatch):

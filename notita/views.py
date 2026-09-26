@@ -23,6 +23,23 @@ def teclado_recordatorio(task_id: int, insistente: bool = False) -> list:
     return filas
 
 
+def teclado_vencidas_juntas() -> list:
+    return [
+        [{"text": "⏰ Patearlas una semana", "callback_data": "vg:s"}],
+        [{"text": "📋 Verlas de a una", "callback_data": "vg:u"}],
+    ]
+
+
+def render_vencidas_juntas(rows, ref: date) -> str:
+    """Las que hace noches que nadie toca, en un solo mensaje en vez de N."""
+    lineas = [linea_tarea(r, ref) for r in rows[:8]]
+    if len(rows) > 8:
+        lineas.append(f"<i>…y {len(rows) - 8} más</i>")
+    return (f"😅 Hace varios días que pregunto por estas <b>{len(rows)}</b>:\n"
+            + "\n".join(lineas)
+            + "\n\n¿Las hacemos, las pateamos, o las borramos de una vez?")
+
+
 def teclado_posponer(task_id: int) -> list:
     return [
         [
@@ -54,7 +71,10 @@ def teclado_para_cuando(task_id: int) -> list:
 
 
 def teclado_super(rows) -> list:
-    return [[{"text": f"🛒 {r['texto'][:40]}", "callback_data": f"c:{r['id']}"}] for r in rows]
+    filas = [[{"text": f"🛒 {r['texto'][:40]}", "callback_data": f"c:{r['id']}"}] for r in rows]
+    if len(rows) > 1:   # volver del súper y tocar 15 botones es un castigo
+        filas.append([{"text": "✅ Compramos todo", "callback_data": "ct"}])
+    return filas
 
 
 # --------------------------------------------------------------------------
@@ -114,8 +134,10 @@ def confirmacion(row: sqlite3.Row, ref: date) -> str:
     """Misma línea que en /tareas, pero siempre dice para cuándo (o que va al súper)."""
     if row["tipo"] == "recado":
         a_quien = config.NOMBRES.get(row["responsable"], row["responsable"])
-        cuando = formato_humano(de_iso(row["due_date"]), ref)
-        return (f"💌 A {escapar(a_quien)} · <i>{cuando} a las 20:00</i>\n"
+        d = de_iso(row["due_date"])
+        # Los de hoy se entregan en el momento; los de otro día, en la pasada de la noche.
+        cuando = "ahora mismo" if d == ref else f"{formato_humano(d, ref)} a las 20:00"
+        return (f"💌 A {escapar(a_quien)} · <i>{cuando}</i>\n"
                 f"   «{texto_tarea(row)}»")
     cuando = "al súper" if row["tipo"] == "compras" else formato_humano(de_iso(row["due_date"]), ref)
     partes = [f"{emoji(row)} {texto_tarea(row)}", f"<i>{cuando}</i>"]
@@ -251,9 +273,14 @@ def render_resumen_semanal(chat_id: int, ref: date) -> str:
 
     vencidas = [r for r in db.vencen_hasta(chat_id, ref) if de_iso(r["due_date"]) < ref]
     pendientes_algun_dia = db.sin_fecha(chat_id)
+    compras = db.pendientes(chat_id, tipo="compras")
     extras = []
     if vencidas:
         extras.append(f"⚠️ {len(vencidas)} vencida{'s' if len(vencidas) > 1 else ''} sin hacer")
+    if compras:
+        # Sin esto la lista del súper es invisible: no tiene fecha ni recordatorio,
+        # así que si nadie escribe /super se pudre sin que nadie se entere.
+        extras.append(f"🛒 {len(compras)} en el súper")
     if pendientes_algun_dia:
         extras.append(f"🌥️ {len(pendientes_algun_dia)} para «algún día»")
     if extras:
@@ -276,7 +303,8 @@ AYUDA = """Hola, soy <b>Notita</b> 🧲
 • «borrá la del plomero» → la borro
 
 <b>Para mandar un recado</b> 💌
-• «decile a Axel mañana que lo amo» → se lo digo yo a las 20:00
+• «avisale a Axel que llego en 10» → se lo digo en el momento
+• «decile a Axel mañana que compre pan» → se lo digo mañana a las 20:00
 
 Si no me decís cuándo es algo, te pregunto.
 A las 20:00 del día que vence te recuerdo, con ✅ Hecho, ⏰ Posponer y 🗑️ Borrar.

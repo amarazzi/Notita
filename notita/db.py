@@ -27,6 +27,7 @@ CREATE TABLE IF NOT EXISTS tasks (
     recur_monthday INTEGER,
     estado        TEXT    NOT NULL DEFAULT 'pendiente', -- pendiente | hecha | borrada
     postpone_count INTEGER NOT NULL DEFAULT 0,
+    recordada_veces INTEGER NOT NULL DEFAULT 0,          -- noches que se preguntó por ella
     created_by    TEXT    NOT NULL DEFAULT 'ninguno',
     created_at    TEXT    NOT NULL,
     completed_by  TEXT,
@@ -63,9 +64,21 @@ def conn():
         c.close()
 
 
+# Columnas agregadas después de la primera versión. `CREATE TABLE IF NOT EXISTS` no
+# las agrega a una base que ya existe, así que hay que pedirlas explícitamente.
+COLUMNAS_AGREGADAS = {
+    "tasks": {"recordada_veces": "INTEGER NOT NULL DEFAULT 0"},
+}
+
+
 def init_db() -> None:
     with conn() as c:
         c.executescript(SCHEMA)
+        for tabla, columnas in COLUMNAS_AGREGADAS.items():
+            existentes = {f["name"] for f in c.execute(f"PRAGMA table_info({tabla})")}
+            for nombre, tipo in columnas.items():
+                if nombre not in existentes:
+                    c.execute(f"ALTER TABLE {tabla} ADD COLUMN {nombre} {tipo}")
 
 
 # --------------------------------------------------------------------------

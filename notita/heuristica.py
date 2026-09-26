@@ -92,10 +92,13 @@ INTENCIONES = (
                        r"|^(tareas|pendientes|la lista)\??$"),
     ("ver_ayuda", r"(como (funciona|te uso|se usa|andas)|que (sabes|podes) hacer"
                   r"|para que servis|ayuda|help)"),
-    ("completar", r"^(ya |listo,? ?)(esta|estan)? ?(hecho|hecha|hice|hicimos|termine|terminamos|"
-                  r"limpie|limpiamos|pague|pagamos|llame|llamamos|saque|sacamos|compre|compramos|"
-                  r"arregle|arreglamos|ordene|ordenamos|regue|regamos)"
-                  r"|^(hecho|listo|ya esta|ya fue)\b"),
+    # «ya» + cualquier verbo en pasado. Antes era una lista cerrada y «ya lavé los
+    # platos» o «ya colgué el cuadro» se anotaban como tarea nueva.
+    ("completar", r"^(?:ya|listo,? ?ya?)\s+(?:lo|la|los|las|le)?\s*"
+                  r"(?!que\b|no\b|se\b|es\b|esta\b|estan\b|casi\b|falta\b)"
+                  r"\w{2,}(?:e|i|o|amos|imos|ado|ido|ada|ida)\b"
+                  r"|^(?:ya |listo,? ?)(?:esta|estan) ?(?:hecho|hecha|hechas|hechos)\b"
+                  r"|^(?:hecho|hecha|listo|lista|ya esta|ya fue|ya estan)\b"),
     # Con las variantes mal escritas más comunes: se escribe rápido desde el celular.
     # (`aplanar` ya saca las tildes, así que "borrá" llega como "borra".)
     ("borrar", r"^(borra|borralo|borrala|borrame|borrar|elimina|elimna|eliminar|"
@@ -126,8 +129,9 @@ def _intencion(texto: str) -> tuple[str, str] | None:
             continue
         if intencion not in ("completar", "borrar"):
             return intencion, ""
-        # La referencia es lo que queda después del verbo.
-        resto = t[m.end():].strip() or t[m.start():].strip()
+        # La referencia es lo que queda después del verbo. Si el verbo se comió todo
+        # («hecho», «ya fue»), no hay referencia y Notita pregunta cuál era.
+        resto = t[m.end():].strip()
         anterior = None
         while resto != anterior:  # sacar el ruido en cadena
             anterior = resto

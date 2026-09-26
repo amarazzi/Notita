@@ -55,6 +55,33 @@ def llamar(metodo: str, **payload) -> dict | None:
     return None
 
 
+# Telegram rechaza los mensajes de más de 4096 caracteres. Antes de esto, un /todo
+# con muchas tareas devolvía error y el comando moría en silencio.
+LARGO_MAXIMO = 4000
+
+
+def enviar_largo(chat_id: int, texto: str, teclado: list | None = None) -> dict | None:
+    """Manda un texto largo partido en varios mensajes, cortando por renglón."""
+    if len(texto) <= LARGO_MAXIMO:
+        return enviar(chat_id, texto, teclado)
+
+    partes, actual = [], ""
+    for linea in texto.split("\n"):
+        if len(actual) + len(linea) + 1 > LARGO_MAXIMO and actual:
+            partes.append(actual)
+            actual = ""
+        actual += ("\n" if actual else "") + linea[:LARGO_MAXIMO]
+    if actual:
+        partes.append(actual)
+
+    ultimo = None
+    for i, parte in enumerate(partes, 1):
+        pie = f"\n<i>({i}/{len(partes)})</i>"
+        # El teclado va sólo en el último, para que no se repita.
+        ultimo = enviar(chat_id, parte + pie, teclado if i == len(partes) else None)
+    return ultimo
+
+
 def enviar(chat_id: int, texto: str, teclado: list | None = None,
            responder_a: int | None = None) -> dict | None:
     payload = {

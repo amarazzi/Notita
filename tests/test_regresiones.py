@@ -182,8 +182,15 @@ def test_updates_distintos_se_procesan(enviados, monkeypatch):
              "responsable": "ninguno", "fecha_kind": "hoy", "recur_kind": "ninguna",
              "necesita_aclaracion": False}]})
 
+    # Textos distintos a propósito: dos updates iguales los frena el anti-duplicados,
+    # que es otro mecanismo.
+    llm.interpretar_mensaje = lambda texto, *a, **k: {
+        "intencion": "anotar", "es_tarea": True, "items": [
+            {"texto": texto, "tipo": "casa", "categoria": "otros",
+             "responsable": "ninguno", "fecha_kind": "hoy", "recur_kind": "ninguna",
+             "necesita_aclaracion": False}]}
     handlers.handle_update(mensaje("sacar la basura", update_id=1))
-    handlers.handle_update(mensaje("sacar la basura", update_id=2))
+    handlers.handle_update(mensaje("regar las plantas", update_id=2))
     assert len(db.pendientes(CHAT)) == 2
 
 

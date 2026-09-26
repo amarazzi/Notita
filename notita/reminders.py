@@ -21,6 +21,10 @@ PREGUNTAS = [
     "¿{tarea}? Contame 👀",
 ]
 
+# Después de esta cantidad de noches preguntando por lo mismo, se dejan de mandar
+# mensajes sueltos y las vencidas van todas juntas.
+UMBRAL_CANSANCIO = 3
+
 INSISTENTES = [
     "Van {n} veces que la pateamos, ya es un clásico de la casa 😅 ¿la hacemos o la borramos?",
     "{n} posposiciones. Esta tarea tiene más aguante que nosotros 🐢 ¿la hacemos o chau?",
@@ -42,7 +46,8 @@ def correr_rutina_diaria(ref: date | None = None, forzar: bool = False,
         log.error("No hay ALLOWED_CHAT_ID configurado")
         return {"error": "sin chat_id"}
 
-    resultado = {"fecha": ref.isoformat(), "resumen": False, "recordatorios": 0, "recados": 0}
+    resultado = {"fecha": ref.isoformat(), "resumen": False, "recordatorios": 0,
+                 "recados": 0, "agrupadas": 0}
 
     # Los recados van primero: son lo más lindo de recibir.
     for row in db.recados_hasta(chat_id, ref):
@@ -56,12 +61,25 @@ def correr_rutina_diaria(ref: date | None = None, forzar: bool = False,
         resultado["recados"] += 1
 
     if ref.weekday() == 6:  # domingo
-        telegram.enviar(chat_id, views.render_resumen_semanal(chat_id, ref))
+        telegram.enviar_largo(chat_id, views.render_resumen_semanal(chat_id, ref))
         resultado["resumen"] = True
 
-    for row in db.vencen_hasta(chat_id, ref):
-        if not forzar and row["last_reminded_on"] == iso(ref):
-            continue
+    toca = [r for r in db.vencen_hasta(chat_id, ref)
+            if forzar or r["last_reminded_on"] != iso(ref)]
+
+    # Las que ya preguntamos muchas noches van juntas en un solo mensaje. Repetir
+    # cinco mensajes por noche para siempre es la forma más rápida de que dejen de
+    # leer al bot.
+    cansadas = [r for r in toca if (r["recordada_veces"] or 0) >= UMBRAL_CANSANCIO]
+    if len(cansadas) >= 2:
+        if telegram.enviar(chat_id, views.render_vencidas_juntas(cansadas, ref),
+                           views.teclado_vencidas_juntas()) is not None:
+            for row in cansadas:
+                _anotar_recordatorio(row, ref)
+            resultado["agrupadas"] = len(cansadas)
+            toca = [r for r in toca if r not in cansadas]
+
+    for row in toca:
         enviado = telegram.enviar(
             chat_id, _texto_recordatorio(row, ref),
             views.teclado_recordatorio(row["id"], row["postpone_count"] >= 3))
@@ -69,11 +87,16 @@ def correr_rutina_diaria(ref: date | None = None, forzar: bool = False,
             # Si no se pudo mandar, no se anota como recordado: se reintenta mañana.
             log.error("No pude recordar la tarea %s", row["id"])
             continue
-        db.actualizar(row["id"], last_reminded_on=iso(ref))
+        _anotar_recordatorio(row, ref)
         resultado["recordatorios"] += 1
 
     log.info("Rutina diaria: %s", resultado)
     return resultado
+
+
+def _anotar_recordatorio(row, ref: date) -> None:
+    db.actualizar(row["id"], last_reminded_on=iso(ref),
+                  recordada_veces=(row["recordada_veces"] or 0) + 1)
 
 
 def _texto_recordatorio(row, ref: date) -> str:

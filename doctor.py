@@ -275,6 +275,7 @@ def revisar_base() -> None:
 
 def revisar_recordatorios() -> None:
     titulo("La rutina de las 20:00")
+    _revisar_si_la_rutina_corre()
     if config.CRON_SECRET:
         ok("CRON_SECRET configurado: /cron/recordatorios está activa (opción B)")
         print("      \033[2m→ probala con: curl -H \"X-Cron-Secret: ...\" "
@@ -284,6 +285,47 @@ def revisar_recordatorios() -> None:
         print("      \033[2m→ Tasks → Daily task → 23:00 UTC → "
               f"python3.13 {config.BASE_DIR}/run_reminders.py\033[0m")
     print("      \033[2m→ para probar ahora: python3 run_reminders.py --forzar\033[0m")
+
+
+def _revisar_si_la_rutina_corre() -> None:
+    """Que la ruta esté activa no significa que alguien la esté llamando.
+
+    Es el modo de falla más silencioso que tiene Notita: si el cron no existe, no
+    sale ningún recordatorio y nadie se entera. Se puede saber porque cada
+    recordatorio enviado deja su marca en la base.
+    """
+    from notita.dates import de_iso, hoy
+
+    try:
+        with db.conn() as c:
+            fila = c.execute(
+                """SELECT MAX(last_reminded_on) ultima,
+                          SUM(estado = 'pendiente' AND tipo = 'casa'
+                              AND due_date IS NOT NULL AND due_date <= ?) debian
+                   FROM tasks""", (hoy().isoformat(),)).fetchone()
+    except sqlite3.Error:
+        return
+    ultima, debian = de_iso(fila["ultima"]), fila["debian"] or 0
+
+    if ultima is None:
+        if debian:
+            mal(f"no hay registro de que la rutina haya corrido nunca, y hay {debian} "
+                "tarea(s) que ya deberían haberse recordado",
+                "¿está creada la tarea diaria (o el cronjob externo)? Probá a mano: "
+                f"python3 {config.BASE_DIR}/run_reminders.py --forzar")
+        else:
+            ok("la rutina todavía no tuvo nada que recordar")
+        return
+
+    dias = (hoy() - ultima).days
+    if dias <= 1:
+        ok(f"la rutina corrió hace poco (última vez: {ultima.strftime('%d/%m')})")
+    elif debian:
+        mal(f"la rutina no manda nada desde el {ultima.strftime('%d/%m')} "
+            f"({dias} días) y hay {debian} tarea(s) esperando",
+            "revisá que el cron siga vivo")
+    else:
+        ok(f"última corrida: {ultima.strftime('%d/%m')} (no hubo nada que recordar después)")
 
 
 def mandar_mensaje_de_prueba() -> None:
