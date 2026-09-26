@@ -2,18 +2,24 @@
 """Instalador guiado de Notita. Te deja el .env escrito y el webhook andando.
 
     python3 install.py
+    python3 install.py --env /tmp/prueba.env   # ensayo: escribe en otro archivo
 
 No hace falta saber nada de código: te va preguntando y validando todo contra
 Telegram y Google a medida que avanza. Se puede cortar con Ctrl+C y volver a
 empezar cuando quieras; no toca la base de datos.
+
+Si ya había un .env, sus valores se ofrecen como respuesta por defecto y el
+original queda copiado en .env.bak.
 """
 from __future__ import annotations
 
+import argparse
 import logging
 import re
 import secrets
 import shutil
 import sys
+from pathlib import Path
 
 import requests
 
@@ -22,6 +28,11 @@ from notita.config import Persona, slugificar
 
 TG = "https://api.telegram.org/bot{token}/{metodo}"
 ENV = config.BASE_DIR / ".env"
+# Lo que ya estaba configurado, para ofrecerlo como default y no perder nada.
+PREVIO: dict[str, str] = {}
+# Si desconectamos un webhook que ya andaba, lo recordamos para poder dejarlo
+# como estaba (incluso si cortan el wizard a mitad de camino).
+_A_RESTAURAR: dict[str, str] = {}
 
 # Los módulos logean los errores crudos; acá los contamos nosotros, con más contexto.
 logging.getLogger("notita").setLevel(logging.CRITICAL)
@@ -84,11 +95,25 @@ def tg(token: str, metodo: str, **payload) -> tuple[bool, dict | str]:
     return True, data.get("result")
 
 
+def leer_env(ruta: Path) -> dict[str, str]:
+    """Lee un .env a mano (sin dotenv) para no pisar lo que ya estaba configurado."""
+    valores: dict[str, str] = {}
+    if not ruta.exists():
+        return valores
+    for linea in ruta.read_text(encoding="utf-8").splitlines():
+        linea = linea.strip()
+        if not linea or linea.startswith("#") or "=" not in linea:
+            continue
+        clave, _, valor = linea.partition("=")
+        valores[clave.strip()] = valor.strip()
+    return valores
+
+
 def paso_token() -> tuple[str, str]:
     titulo(1, "El token del bot")
     dato("Si todavía no lo tenés: hablale a @BotFather → /newbot y copiá el token.")
     while True:
-        token = preguntar("Token de BotFather")
+        token = preguntar("Token de BotFather", PREVIO.get("TELEGRAM_TOKEN", ""))
         if not re.fullmatch(r"\d+:[\w-]{30,}", token or ""):
             mal("Eso no tiene forma de token. Es algo como 123456789:AAG...")
             continue
@@ -117,13 +142,21 @@ def paso_token() -> tuple[str, str]:
         return token, res["username"]
 
 
-def paso_grupo_y_personas(token: str, usuario_bot: str) -> tuple[int, tuple[Persona, ...]]:
+def paso_grupo_y_personas(token: str, usuario_bot: str) -> tuple[int, tuple[Persona, ...], str]:
+    """Devuelve (chat_id, personas, webhook que había antes de empezar)."""
     titulo(2, "El grupo y quiénes viven en la casa")
     dato(f"1) Creá un grupo de Telegram y agregá a @{usuario_bot}.")
     dato("2) Que CADA persona de la casa escriba un mensaje cualquiera en el grupo")
     dato("   (con eso detecto el grupo y el user_id de cada uno, sin que busquen nada).")
 
-    # getUpdates no funciona si hay un webhook puesto.
+    # getUpdates no anda si hay un webhook puesto, así que lo desconectamos un rato.
+    # Guardamos cuál era para poder dejar todo como estaba si el wizard no lo reemplaza.
+    bien, info = tg(token, "getWebhookInfo")
+    webhook_previo = (info or {}).get("url", "") if bien else ""
+    if webhook_previo:
+        aviso("Ya había un webhook puesto: lo desconecto un minuto para poder leer el grupo.")
+        dato(f"Era {webhook_previo}. Al final lo vuelvo a enchufar.")
+        _A_RESTAURAR.update(token=token, url=webhook_previo)
     tg(token, "deleteWebhook")
 
     chat_id, gente = 0, {}
@@ -192,7 +225,7 @@ def paso_grupo_y_personas(token: str, usuario_bot: str) -> tuple[int, tuple[Pers
         aviso("Sin personas configuradas: las tareas van a quedar todas sin responsable.")
     else:
         ok("La casa: " + ", ".join(f"{p.nombre}" for p in personas))
-    return chat_id, tuple(personas)
+    return chat_id, tuple(personas), webhook_previo
 
 
 # --------------------------------------------------------------------------
@@ -206,9 +239,12 @@ def paso_gemini(personas: tuple[Persona, ...]) -> tuple[str, str]:
     dato("entiende fechas escritas de cualquier forma y elige categoría y responsable.")
     dato("Si preferís no mandarle nada a Google, dejalo vacío: Notita funciona igual,")
     dato("interpretando todo con reglas locales (más boba, pero 100% en tu servidor).")
-    model = "gemini-2.5-flash"
+    model = PREVIO.get("GEMINI_MODEL") or "gemini-2.5-flash"
+    anterior = PREVIO.get("GEMINI_API_KEY", "")
+    pregunta = ("API key de Google AI Studio (Enter = la que ya tenías)" if anterior
+                else "API key de Google AI Studio (Enter = modo local)")
     while True:
-        key = preguntar("API key de Google AI Studio (Enter = modo local)")
+        key = preguntar(pregunta, anterior)
         if not key:
             aviso("Modo local: sin separar tareas en lote ni categorías automáticas.")
             if confirmar("¿Seguro?", default=False):
@@ -237,11 +273,11 @@ def paso_gemini(personas: tuple[Persona, ...]) -> tuple[str, str]:
 # Webhook y .env
 # --------------------------------------------------------------------------
 
-def paso_url() -> str:
+def paso_url(webhook_previo: str = "") -> str:
     titulo(4, "La dirección pública")
     dato("Es la URL de tu web app, por ejemplo https://tuusuario.pythonanywhere.com")
     dato("Si todavía no la creaste, dejalo vacío y lo configurás después con set_webhook.py.")
-    url = preguntar("URL pública (Enter para saltear)")
+    url = preguntar("URL pública (Enter para saltear)", webhook_previo)
     if not url:
         aviso("Salteado: el bot no va a recibir mensajes hasta que pongas el webhook.")
         return ""
@@ -266,15 +302,15 @@ def paso_url() -> str:
 def paso_contexto() -> str:
     titulo(5, "Algo sobre la casa (opcional)")
     dato("Ayuda al LLM a acertar. Ej: «Tenemos un gato que se llama Milo».")
-    return preguntar("Contexto (Enter para saltear)")
+    return preguntar("Contexto (Enter para saltear)", PREVIO.get("NOTITA_CONTEXTO", ""))
 
 
 def escribir_env(valores: dict[str, str]) -> None:
     titulo(6, "Guardar la configuración")
     if ENV.exists():
-        backup = ENV.with_suffix(".env.bak")
+        backup = ENV.with_name(ENV.name + ".bak")
         shutil.copy(ENV, backup)
-        aviso(f"Ya existía un .env: lo guardé como {backup.name}")
+        aviso(f"Ya existía un {ENV.name}: lo guardé como {backup.name}")
     lineas = [
         "# Generado por install.py. Podés editarlo a mano cuando quieras.",
         "",
@@ -287,18 +323,27 @@ def escribir_env(valores: dict[str, str]) -> None:
         f"GEMINI_MODEL={valores['gemini_model']}",
         "",
         "# Vacío = la ruta /cron/recordatorios queda apagada.",
-        "CRON_SECRET=",
+        f"CRON_SECRET={PREVIO.get('CRON_SECRET', '')}",
     ]
     if valores.get("contexto"):
         lineas += ["", f"NOTITA_CONTEXTO={valores['contexto']}"]
+    if PREVIO.get("NOTITA_DB"):  # no perder una ruta de base personalizada
+        lineas += ["", f"NOTITA_DB={PREVIO['NOTITA_DB']}"]
     ENV.write_text("\n".join(lineas) + "\n", encoding="utf-8")
     ENV.chmod(0o600)  # tiene secretos: que no lo lea nadie más
     ok(f"Escrito en {ENV}")
 
 
-def paso_webhook(token: str, url: str, secret: str, chat_id: int) -> None:
+def paso_webhook(token: str, url: str, secret: str, chat_id: int,
+                 webhook_previo: str = "") -> None:
     titulo(7, "Enchufar el webhook")
     if not url:
+        if webhook_previo:
+            # Para leer el grupo hubo que desconectarlo: lo dejamos como estaba.
+            restaurar_webhook()
+            aviso("Quedó con el secreto viejo, no con el que acabo de generar.")
+            dato(f"Si querés usar el nuevo: python3 set_webhook.py {webhook_previo}")
+            return
         aviso("Sin URL no hay webhook. Cuando tengas la web app andando, corré:")
         dato("python3 set_webhook.py https://TU_USUARIO.pythonanywhere.com/telegram")
         return
@@ -308,6 +353,7 @@ def paso_webhook(token: str, url: str, secret: str, chat_id: int) -> None:
     if not bien:
         mal(f"Telegram rechazó el webhook: {res}")
         return
+    _A_RESTAURAR.clear()  # ya quedó uno nuevo, no hay nada que restaurar
     ok(f"Webhook apuntando a {url}")
 
     bien, info = tg(token, "getWebhookInfo")
@@ -327,13 +373,26 @@ def paso_webhook(token: str, url: str, secret: str, chat_id: int) -> None:
 # --------------------------------------------------------------------------
 
 def main() -> None:
+    global ENV, PREVIO
+
+    p = argparse.ArgumentParser(description="Instalador guiado de Notita")
+    p.add_argument("--env", help="escribir en otro archivo (para ensayar sin tocar el .env real)")
+    args = p.parse_args()
+    if args.env:
+        ENV = Path(args.env).expanduser().resolve()
+    PREVIO = leer_env(ENV)
+
     print("\n\033[1m🧲 Notita — instalador\033[0m")
     print("  Se puede cortar con Ctrl+C. No toca la base de datos.")
+    if PREVIO:
+        print(f"  Ya hay configuración en {ENV.name}: la uso como respuesta por defecto.")
+    if args.env:
+        print(f"  \033[33mModo ensayo:\033[0m voy a escribir en {ENV}")
 
     token, usuario_bot = paso_token()
-    chat_id, personas = paso_grupo_y_personas(token, usuario_bot)
+    chat_id, personas, webhook_previo = paso_grupo_y_personas(token, usuario_bot)
     gemini_key, gemini_model = paso_gemini(personas)
-    url = paso_url()
+    url = paso_url(webhook_previo)
     contexto = paso_contexto()
 
     secret = secrets.token_urlsafe(32)
@@ -346,7 +405,7 @@ def main() -> None:
         "gemini_model": gemini_model,
         "contexto": contexto,
     })
-    paso_webhook(token, url, secret, chat_id)
+    paso_webhook(token, url, secret, chat_id, webhook_previo)
 
     print("\n\033[1m¡Listo!\033[0m Lo que falta:")
     print("  1. Si estás en PythonAnywhere: pestaña Web → botón \033[1mReload\033[0m")
@@ -357,9 +416,26 @@ def main() -> None:
     print("\n  Probalo escribiendo en el grupo: «hay que limpiar la heladera el lunes»\n")
 
 
+def restaurar_webhook() -> None:
+    """Deja el webhook como estaba si el wizard no llegó a poner uno nuevo."""
+    if not _A_RESTAURAR:
+        return
+    bien, _ = tg(_A_RESTAURAR["token"], "setWebhook", url=_A_RESTAURAR["url"],
+                 secret_token=PREVIO.get("TELEGRAM_WEBHOOK_SECRET") or None,
+                 allowed_updates=["message", "edited_message", "callback_query"])
+    if bien:
+        ok(f"Dejé el webhook como estaba: {_A_RESTAURAR['url']}")
+    else:
+        mal("No pude restaurar el webhook. Corré: python3 set_webhook.py "
+            + _A_RESTAURAR["url"])
+    _A_RESTAURAR.clear()
+
+
 if __name__ == "__main__":
     try:
         main()
     except KeyboardInterrupt:
-        print("\n\n  Cortado. No se guardó nada nuevo.\n")
+        print("\n\n  Cortado. No se guardó nada nuevo.")
+        restaurar_webhook()
+        print()
         sys.exit(1)

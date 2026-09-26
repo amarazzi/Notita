@@ -85,6 +85,14 @@ python3.13 doctor.py       # chequea que todo esté en orden y te dice qué falt
 Lo único que hay que hacer a mano antes es crear el bot y apagar el privacy mode
 (pasos 1 y 2), y después de instalar, programar la rutina de las 20:00 (paso 7).
 
+Se puede volver a correr cuando quieras: lo que ya tenías se ofrece como respuesta por
+defecto (Enter lo deja igual), el `.env` anterior queda copiado en `.env.bak` y, si había
+un webhook andando, lo deja como estaba. Para ensayar sin tocar nada real:
+
+```bash
+python3.13 install.py --env /tmp/prueba.env
+```
+
 El resto de esta sección es el paso a paso detallado, por si algo falla o preferís
 hacerlo a mano.
 
@@ -342,7 +350,7 @@ También desde el grupo: `/recordatorios`.
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt pytest
 cp .env.example .env
-pytest                 # 182 tests, sin red ni API keys
+pytest                 # 194 tests, sin red ni API keys
 python app.py          # http://localhost:5000
 ```
 
@@ -386,7 +394,7 @@ notita/
   handlers.py           mensajes, comandos y botones
   reminders.py          recordatorios diarios y resumen semanal
   views.py              textos y teclados
-tests/                  fechas, recurrencias, personas, LLM y flujo completo
+tests/                  fechas, recurrencias, personas, LLM, instalador y flujo completo
 ```
 
 ## ¿Lo puedo usar en mi casa?
