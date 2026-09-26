@@ -270,6 +270,32 @@ def parse_y_resolver(texto: str, ref: date | None = None) -> tuple[DateSpec | No
     return spec, resolve(spec, ref)
 
 
+# Palabras que pueden acompañar a una fecha sin cambiarla.
+RELLENO_FECHA = frozenset(
+    "para el la los las un una de del al a en este esta ese esa por favor porfa mejor "
+    "creo que es seria dale ok bueno y o mas menos tarde temprano noche manana tardecita "
+    "mediodia medio dia primera hora".split())
+
+
+def parse_solo_fecha(texto: str) -> DateSpec | None:
+    """La fecha sólo si el mensaje ES una fecha y nada más.
+
+    «el lunes» sí; «el lunes voy al dentista» no. La diferencia importa: cuando
+    Notita pregunta «¿para cuándo?», un mensaje cualquiera que mencione un día no
+    tiene que robarse la respuesta (antes se la robaba y el mensaje se perdía).
+    """
+    if parse_natural(texto) is None:
+        return None
+    spec, resto = extraer_fecha(texto)
+    if spec is None:
+        # `parse_natural` conoce más formas de decir "algún día" que el extractor.
+        suelta = parse_natural(texto)
+        return suelta if suelta and suelta.kind == "algun_dia" else None
+    if [p for p in normalizar(resto).split() if p not in RELLENO_FECHA]:
+        return None
+    return spec
+
+
 # --------------------------------------------------------------------------
 # Recurrencia
 # --------------------------------------------------------------------------
@@ -352,13 +378,25 @@ def _anio(txt: str | None) -> int | None:
 
 
 def _extraer(texto: str, patrones: list) -> tuple[object | None, str]:
-    """Busca el primer patrón que matchee y devuelve (lo encontrado, texto sin eso)."""
+    """Busca la expresión más larga que matchee y devuelve (lo encontrado, texto sin eso).
+
+    Gana la más larga, no la primera de la lista: en «el lunes a la mañana» hay dos
+    candidatas («el lunes» y «mañana») y la que vale es la más específica.
+    A igual largo, manda el orden de la lista.
+    """
     plano = aplanar(texto)
-    for patron, armar in patrones:
+    mejor = None
+    for indice, (patron, armar) in enumerate(patrones):
         m = re.search(patron, plano)
-        if m:
-            return armar(m), _recortar(texto, m.span())
-    return None, texto
+        if m is None:
+            continue
+        largo = m.end() - m.start()
+        if mejor is None or largo > mejor[0]:
+            mejor = (largo, indice, armar, m)
+    if mejor is None:
+        return None, texto
+    _, _, armar, m = mejor
+    return armar(m), _recortar(texto, m.span())
 
 
 def extraer_fecha(texto: str) -> tuple[DateSpec | None, str]:

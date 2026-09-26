@@ -46,7 +46,11 @@ def correr_rutina_diaria(ref: date | None = None, forzar: bool = False,
 
     # Los recados van primero: son lo más lindo de recibir.
     for row in db.recados_hasta(chat_id, ref):
-        telegram.enviar(chat_id, views.render_recado(row))
+        # Sólo se da por entregado si Telegram lo aceptó. Antes se marcaba igual, y
+        # un error de red hacía desaparecer el recado para siempre.
+        if telegram.enviar(chat_id, views.render_recado(row)) is None:
+            log.error("No pude entregar el recado %s: queda para la próxima", row["id"])
+            continue
         db.actualizar(row["id"], estado="hecha",
                       completed_at=ahora().isoformat(timespec="seconds"))
         resultado["recados"] += 1
@@ -58,8 +62,13 @@ def correr_rutina_diaria(ref: date | None = None, forzar: bool = False,
     for row in db.vencen_hasta(chat_id, ref):
         if not forzar and row["last_reminded_on"] == iso(ref):
             continue
-        telegram.enviar(chat_id, _texto_recordatorio(row, ref),
-                        views.teclado_recordatorio(row["id"], row["postpone_count"] >= 3))
+        enviado = telegram.enviar(
+            chat_id, _texto_recordatorio(row, ref),
+            views.teclado_recordatorio(row["id"], row["postpone_count"] >= 3))
+        if enviado is None:
+            # Si no se pudo mandar, no se anota como recordado: se reintenta mañana.
+            log.error("No pude recordar la tarea %s", row["id"])
+            continue
         db.actualizar(row["id"], last_reminded_on=iso(ref))
         resultado["recordatorios"] += 1
 

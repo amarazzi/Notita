@@ -406,6 +406,7 @@ def escribir_env(valores: dict[str, str]) -> None:
     if ENV.exists():
         backup = ENV.with_name(ENV.name + ".bak")
         shutil.copy(ENV, backup)
+        backup.chmod(0o600)   # tiene los mismos secretos que el original
         aviso(f"Ya existía un {ENV.name}: lo guardé como {backup.name}")
     lineas = [
         "# Generado por install.py. Podés editarlo a mano cuando quieras.",

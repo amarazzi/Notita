@@ -11,7 +11,7 @@ from .dates import (
     de_iso,
     formato_humano,
     hoy,
-    parse_natural,
+    parse_solo_fecha,
     proximo_fin_de_semana,
     resolve,
 )
@@ -31,10 +31,20 @@ CHISTES_POSPONER = [
 
 def handle_update(update: dict) -> None:
     db.init_db()
+    # Telegram reenvía el update si el webhook tarda o falla, y con Gemini lento
+    # eso pasa: sin esta guarda, el mismo mensaje se anotaba dos veces.
+    if not db.update_nuevo(update.get("update_id")):
+        log.info("Update repetido, lo ignoro: %s", update.get("update_id"))
+        return
     if "callback_query" in update:
         _callback(update["callback_query"])
         return
-    msg = update.get("message") or update.get("edited_message")
+    if "edited_message" in update and "message" not in update:
+        # Editar un mensaje creaba una tarea nueva: corregir un tipeo terminaba en
+        # dos tareas. Mejor no hacer nada que duplicar.
+        log.info("Mensaje editado, lo ignoro")
+        return
+    msg = update.get("message")
     if msg:
         _mensaje(msg)
 
@@ -296,16 +306,15 @@ def _responder_fecha_libre(chat_id: int, pendiente: dict, texto: str) -> bool:
         db.clear_pending(chat_id)
         return False
 
-    ref = hoy()
-    spec = parse_natural(texto)
-    if spec is None and len(texto) <= 60:
-        spec = llm.interpretar_fecha(texto, ref)
+    # A propósito no se usa el LLM ni `parse_natural` suelto: tienen que ser
+    # mensajes que sean SÓLO una fecha. Si no, un «el martes me traen el colchón»
+    # se consume como respuesta, le pone fecha a otra tarea y se pierde.
+    spec = parse_solo_fecha(texto)
     if spec is None or spec.kind == "desconocida":
-        db.clear_pending(chat_id)
         return False
 
     db.clear_pending(chat_id)
-    _fijar_fecha(chat_id, task_id, resolve(spec, ref))
+    _fijar_fecha(chat_id, task_id, resolve(spec, hoy()))
     return True
 
 
@@ -344,7 +353,10 @@ def _callback(cq: dict) -> None:
     if row is None:
         telegram.responder_callback(cq_id, "Esa ya no está")
         return
-    if row["estado"] != "pendiente" and accion in ("h", "c", "p", "b"):
+    # Los mensajes con botones viven para siempre en Telegram: alguien puede tocar
+    # uno de hace tres semanas. Ninguna acción tiene sentido sobre algo ya resuelto
+    # (antes el botón de fecha, "f", se colaba y le ponía vencimiento a una tarea hecha).
+    if row["estado"] != "pendiente":
         telegram.responder_callback(cq_id, "Ya estaba resuelta")
         telegram.editar(chat_id, message_id, f"✅ <s>{views.texto_tarea(row)}</s>")
         return

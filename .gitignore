@@ -5,3 +5,7 @@ __pycache__/
 .venv/
 venv/
 .pytest_cache/
+
+# Backups del .env: tienen los mismos secretos adentro
+.env.bak
+.env*.bak

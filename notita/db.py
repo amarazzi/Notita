@@ -9,6 +9,9 @@ from datetime import date
 from . import config
 from .dates import Recurrencia, ahora, de_iso, iso
 
+# Después de esto, una pregunta sin contestar se da por perdida.
+PENDING_HORAS = 6
+
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS tasks (
     id            INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -31,6 +34,12 @@ CREATE TABLE IF NOT EXISTS tasks (
     last_reminded_on TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_tasks_estado ON tasks (estado, tipo, due_date);
+
+-- Los update_id que ya procesamos, para no repetir si Telegram reenvía.
+CREATE TABLE IF NOT EXISTS updates_vistos (
+    update_id INTEGER PRIMARY KEY,
+    visto_en  TEXT NOT NULL
+);
 
 -- Conversación pendiente por chat: qué está esperando Notita que le contesten.
 CREATE TABLE IF NOT EXISTS pending (
@@ -218,12 +227,20 @@ def puntaje(referencia: str, texto: str) -> float:
     a, b = normalizar(referencia), normalizar(texto)
     if not a or not b:
         return 0.0
-    if a in b or b in a:
+    # Uno contenido en el otro, pero respetando los límites de palabra: sin esto,
+    # «ya compré el pan» tachaba «comprar pantuflas» con puntaje perfecto.
+    if _contiene_palabra(a, b) or _contiene_palabra(b, a):
         return 1.0
     palabras_a = {p for p in a.split() if len(p) > 2}
     palabras_b = {p for p in b.split() if len(p) > 2}
     solape = len(palabras_a & palabras_b) / len(palabras_a) if palabras_a else 0.0
     return max(solape, SequenceMatcher(None, a, b).ratio())
+
+
+def _contiene_palabra(aguja: str, pajar: str) -> bool:
+    import re
+
+    return re.search(rf"\b{re.escape(aguja)}\b", pajar) is not None
 
 
 def buscar(chat_id: int, referencia: str, minimo: float = 0.5) -> list[tuple[float, sqlite3.Row]]:
@@ -251,6 +268,25 @@ def sin_fecha(chat_id: int):
 # Estado conversacional
 # --------------------------------------------------------------------------
 
+def update_nuevo(update_id: int | None) -> bool:
+    """True si este update no se procesó antes. Lo registra de paso.
+
+    El INSERT es la guarda: si dos workers procesan el mismo update a la vez, la
+    clave primaria hace que uno solo gane.
+    """
+    if not update_id:
+        return True          # sin id (tests, llamadas internas): siempre pasa
+    with conn() as c:
+        try:
+            c.execute("INSERT INTO updates_vistos (update_id, visto_en) VALUES (?,?)",
+                      (int(update_id), ahora().isoformat(timespec="seconds")))
+        except sqlite3.IntegrityError:
+            return False
+        # No hace falta guardar la historia entera.
+        c.execute("DELETE FROM updates_vistos WHERE update_id < ?", (int(update_id) - 5000,))
+    return True
+
+
 def set_pending(chat_id: int, kind: str, task_id: int | None = None, data: dict | None = None) -> None:
     with conn() as c:
         c.execute(
@@ -265,9 +301,21 @@ def set_pending(chat_id: int, kind: str, task_id: int | None = None, data: dict 
 
 
 def get_pending(chat_id: int) -> dict | None:
+    """La pregunta que Notita dejó abierta, si todavía tiene sentido contestarla."""
+    from datetime import datetime, timedelta
+
     with conn() as c:
         row = c.execute("SELECT * FROM pending WHERE chat_id = ?", (chat_id,)).fetchone()
     if not row:
+        return None
+    # Una pregunta de hace días ya no es una pregunta: si sigue viva, se come el
+    # primer mensaje que mencione una fecha.
+    try:
+        nacio = datetime.fromisoformat(row["created_at"])
+    except (TypeError, ValueError):
+        nacio = None
+    if nacio and ahora() - nacio > timedelta(hours=PENDING_HORAS):
+        clear_pending(chat_id)
         return None
     return {
         "kind": row["kind"],

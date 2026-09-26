@@ -13,6 +13,9 @@ API = "https://api.telegram.org/bot{token}/{method}"
 TIMEOUT = 20
 INTENTOS = 3
 ESPERA = 1  # segundos (1, despues 2)
+# Cuánto se acepta esperar cuando Telegram pide frenar. Más que esto no se aguanta:
+# el webhook tiene que contestarle a Telegram antes de que lo reintente.
+ESPERA_MAXIMA = 5
 
 
 def llamar(metodo: str, **payload) -> dict | None:
@@ -24,10 +27,20 @@ def llamar(metodo: str, **payload) -> dict | None:
         try:
             r = requests.post(url, json=payload, timeout=TIMEOUT)
             data = r.json()
-            if not data.get("ok"):
-                log.error("Telegram %s falló: %s", metodo, data)
-                return None
-            return data.get("result")
+            if data.get("ok"):
+                return data.get("result")
+            # 429: mandamos demasiado rápido (la rutina de las 20:00 con muchas
+            # tareas lo provoca). Telegram dice cuánto esperar; antes se perdía
+            # el mensaje en el primer intento.
+            espera = (data.get("parameters") or {}).get("retry_after")
+            if data.get("error_code") == 429 and espera and intento < INTENTOS:
+                espera = min(int(espera), ESPERA_MAXIMA)
+                log.warning("Telegram %s: 429, espero %ss (intento %d/%d)",
+                            metodo, espera, intento, INTENTOS)
+                time.sleep(espera)
+                continue
+            log.error("Telegram %s falló: %s", metodo, data)
+            return None
         except requests.exceptions.ConnectionError as e:
             # El proxy de PythonAnywhere (cuentas gratis) a veces falla un instante: reintentamos.
             # Logueamos solo el tipo de error, asi el token (que va en la URL) no queda en los logs.
