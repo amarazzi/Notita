@@ -29,7 +29,7 @@ deps.exigir("requests")  # antes de importarlas, para poder avisar bien
 
 import requests  # noqa: E402
 
-from notita import config, llm  # noqa: E402
+from notita import config, llm, pythonanywhere  # noqa: E402
 from notita.config import Persona, slugificar  # noqa: E402
 
 TG = "https://api.telegram.org/bot{token}/{metodo}"
@@ -352,11 +352,17 @@ def paso_gemini(personas: tuple[Persona, ...]) -> tuple[str, str]:
 # Webhook y .env
 # --------------------------------------------------------------------------
 
-def paso_url(webhook_previo: str = "") -> str:
+def paso_url(webhook_previo: str = "", sitio=None) -> str:
     titulo(4, "La dirección pública")
-    dato("Es la URL de tu web app, por ejemplo https://tuusuario.pythonanywhere.com")
-    dato("Si todavía no la creaste, dejalo vacío y lo configurás después con set_webhook.py.")
-    url = preguntar("URL pública (Enter para saltear)", webhook_previo)
+    dato("Es la dirección donde Telegram le va a avisar de cada mensaje nuevo.")
+    if sitio:
+        ok(f"Estás en PythonAnywhere, así que ya la sé: {sitio.url}")
+        sugerida = webhook_previo or sitio.url
+    else:
+        dato("Es la URL de tu web app, por ejemplo https://tuusuario.pythonanywhere.com")
+        dato("Si todavía no la creaste, dejalo vacío y lo configurás después con set_webhook.py.")
+        sugerida = webhook_previo
+    url = preguntar("URL pública (Enter para saltear)", sugerida)
     if not url:
         aviso("Salteado: el bot no va a recibir mensajes hasta que pongas el webhook.")
         return ""
@@ -413,9 +419,48 @@ def escribir_env(valores: dict[str, str]) -> None:
     ok(f"Escrito en {ENV}")
 
 
+def paso_web_app(sitio) -> bool:
+    """Deja la web app apuntando a Notita y la recarga. Devuelve si quedó lista."""
+    titulo(7, "La web app")
+    if sitio is None:
+        dato("No estás en PythonAnywhere, así que esto lo configurás vos:")
+        dato("tu servidor tiene que servir `app.py` (mirá el README, sección Plan B).")
+        return False
+
+    if not sitio.existe:
+        aviso("Todavía no creaste la web app, así que no puedo configurarla.")
+        dato("Andá a la pestaña Web → Add a new web app → Manual configuration → Python 3.13,")
+        dato("y después volvé a correr este instalador: el resto ya va a estar hecho.")
+        return False
+
+    proyecto = config.BASE_DIR
+    if pythonanywhere.ya_configurado(sitio, proyecto):
+        ok(f"{sitio.wsgi.name} ya apuntaba a Notita")
+    else:
+        dato(f"Voy a hacer que {sitio.wsgi.name} cargue Notita.")
+        if not confirmar("¿Lo escribo?"):
+            aviso("Lo dejo como está. Vas a tener que editarlo a mano (mirá el README).")
+            return False
+        try:
+            backup = pythonanywhere.escribir_wsgi(sitio, proyecto)
+        except OSError as e:
+            mal(f"No pude escribirlo: {e}")
+            dato("Editalo a mano desde la pestaña Web, o corré el instalador de nuevo.")
+            return False
+        ok(f"Escrito {sitio.wsgi}")
+        if backup:
+            dato(f"Lo que había quedó en {backup.name}")
+
+    if pythonanywhere.recargar(sitio):
+        ok("Web app recargada (así toma la configuración nueva)")
+        return True
+    aviso("No pude recargarla: hacelo con el botón Reload de la pestaña Web.")
+    return False
+
+
 def paso_webhook(token: str, url: str, secret: str, chat_id: int,
                  webhook_previo: str = "") -> None:
-    titulo(7, "Enchufar el webhook")
+    titulo(8, "Enchufar el webhook")
     if not url:
         if webhook_previo:
             # Para leer el grupo hubo que desconectarlo: lo dejamos como estaba.
@@ -477,10 +522,12 @@ def main() -> None:
     if args.env or args.demo:
         print(f"  \033[33mModo ensayo:\033[0m voy a escribir en {ENV}")
 
+    sitio = None if DEMO else pythonanywhere.detectar()
+
     token, usuario_bot = paso_token()
     chat_id, personas, webhook_previo = paso_grupo_y_personas(token, usuario_bot)
     gemini_key, gemini_model = paso_gemini(personas)
-    url = paso_url(webhook_previo)
+    url = paso_url(webhook_previo, sitio)
     contexto = paso_contexto()
 
     secret = secrets.token_urlsafe(32)
@@ -493,6 +540,7 @@ def main() -> None:
         "gemini_model": gemini_model,
         "contexto": contexto,
     })
+    lista = paso_web_app(sitio)
     paso_webhook(token, url, secret, chat_id, webhook_previo)
 
     if DEMO:
@@ -501,13 +549,20 @@ def main() -> None:
         print("  Cuando tengas el bot de verdad: python3 install.py\n")
         return
 
-    print("\n\033[1m¡Listo!\033[0m Lo que falta:")
-    print("  1. Si estás en PythonAnywhere: pestaña Web → botón \033[1mReload\033[0m")
-    print("     (la web app lee el .env recién al arrancar).")
-    print("  2. Programá la rutina de las 20:00: Tasks → Daily task → 23:00 UTC")
-    print(f"     python3.13 {config.BASE_DIR}/run_reminders.py")
-    print("  3. Chequeá que todo esté en orden:  python3 doctor.py")
-    print("\n  Probalo escribiendo en el grupo: «hay que limpiar la heladera el lunes»\n")
+    piton = f"python{sys.version_info.major}.{sys.version_info.minor}"
+    print("\n\033[1m¡Listo!\033[0m", end=" ")
+    if lista:
+        print("Queda una sola cosa, y es en la web de PythonAnywhere:")
+    else:
+        print("Lo que falta:")
+        if sitio:
+            print("  · Pestaña \033[1mWeb\033[0m → botón \033[1mReload\033[0m")
+    print("\n  \033[1mLos recordatorios de las 20:00\033[0m")
+    print("  Pestaña \033[1mTasks\033[0m → Daily task → hora \033[1m23:00\033[0m (es UTC, "
+          "equivale a las 20:00 acá)")
+    print(f"  Comando: \033[1m{piton} {config.BASE_DIR}/run_reminders.py\033[0m")
+    print(f"\n  Para chequear que todo esté en orden: {piton} doctor.py")
+    print("  Y probalo ya: escribí en el grupo «hay que limpiar la heladera el lunes» 🤍\n")
 
 
 def restaurar_webhook() -> None:

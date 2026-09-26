@@ -109,18 +109,7 @@ este orden:
 > (la misma en la consola, en la web app y en la tarea diaria).
 
 **a)** Pestaña *Web* → **Add a new web app** → **Manual configuration** → **Python 3.13**.
-Abrí el link del *WSGI configuration file* y reemplazá **todo** el contenido por esto,
-cambiando `TU_USUARIO`:
-
-```python
-import sys
-
-path = "/home/TU_USUARIO/Notita"
-if path not in sys.path:
-    sys.path.insert(0, path)
-
-from app import app as application  # noqa
-```
+No toques nada más ahí: el archivo de configuración lo escribe el instalador.
 
 **b)** Pestaña *Consoles* → **Bash**, y pegá esto:
 
@@ -131,26 +120,21 @@ pip3.13 install --user -r requirements.txt
 python3.13 install.py
 ```
 
-El instalador te pide el token y la API key, **detecta solo** el grupo y quién vive en la
-casa, **te avisa si el privacy mode quedó encendido**, escribe la configuración y enchufa
-el webhook. Cuando te pregunte la dirección pública, es
-`https://TU_USUARIO.pythonanywhere.com`.
+El instalador hace casi todo solo: te pide el token y la API key, **detecta el grupo y
+quién vive en la casa** mirando quién escribe, **te avisa si el privacy mode quedó
+encendido**, **sabe cuál es tu dirección** (no tenés que tipearla), escribe la
+configuración, **deja lista la web app y la recarga**, y enchufa el webhook.
 
-**c)** Pestaña *Web* → botón **Reload** (la web app lee la configuración al arrancar).
-
-**d)** Pestaña *Tasks* → **Daily task** a las **23:00 UTC** (= 20:00 en Argentina) con:
+**c)** Lo único que queda a mano: pestaña *Tasks* → **Daily task** a las **23:00 UTC**
+(= 20:00 en Argentina) con este comando, cambiando `TU_USUARIO`:
 
 ```
 python3.13 /home/TU_USUARIO/Notita/run_reminders.py
 ```
 
-**e)** Chequeá que quedó todo bien:
-
-```bash
-python3.13 doctor.py
-```
-
 Ya está: escribí en el grupo «hay que limpiar la heladera el lunes».
+
+Si algo no anduvo, `python3.13 doctor.py` te dice qué falta.
 
 > El instalador se puede volver a correr cuando quieras: lo que ya tenías se ofrece como
 > respuesta por defecto (Enter lo deja igual), el `.env` anterior queda copiado en
@@ -431,7 +415,7 @@ También desde el grupo: `/recordatorios`.
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt pytest
 cp .env.example .env
-pytest                 # 220 tests, sin red ni API keys
+pytest                 # 240 tests, sin red ni API keys
 python app.py          # http://localhost:5000
 ```
 
@@ -472,6 +456,7 @@ notita/
   config.py             variables de entorno, zona horaria, quiénes viven en la casa
   deps.py               avisa qué falta instalar, en castellano
   demo.py               Telegram y Gemini de mentira para install.py --demo
+  pythonanywhere.py     detecta la web app, escribe el WSGI y la recarga
   dates.py              fechas y recurrencias — módulo puro, con tests
   db.py                 SQLite
   llm.py                Gemini con responseSchema

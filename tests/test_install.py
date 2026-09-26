@@ -9,7 +9,7 @@ import pytest
 import requests
 
 import install
-from notita import llm
+from notita import config, llm
 
 TOKEN = "123456789:AAGesteTokenEsFalsoPeroTieneLaFormaCorrecta"
 GRUPO = -1001234567890
@@ -156,7 +156,8 @@ def test_instalacion_completa(tmp_path, monkeypatch, telegram_falso, capsys):
 
     salida = capsys.readouterr().out
     assert "privacy mode está apagado" in salida
-    assert "Reload" in salida  # el paso que queda a mano
+    # Lo único que queda a mano: la tarea diaria de las 20:00.
+    assert "Tasks" in salida and "23:00" in salida and "run_reminders.py" in salida
 
 
 def test_permisos_del_env(tmp_path, monkeypatch, telegram_falso):
@@ -271,7 +272,7 @@ def test_si_no_hay_url_y_habia_webhook_lo_restaura(tmp_path, monkeypatch,
     env = tmp_path / ".env"
     env.write_text("TELEGRAM_WEBHOOK_SECRET=secreto-viejo\n")
 
-    monkeypatch.setattr(install, "paso_url", lambda previo="": "")
+    monkeypatch.setattr(install, "paso_url", lambda previo="", sitio=None: "")
     correr(monkeypatch, env, guion(url=None, mensaje_de_prueba=None))
 
     assert any(m == "deleteWebhook" for m, _ in llamadas)
@@ -296,6 +297,122 @@ def test_sin_webhook_previo_no_inventa_nada(tmp_path, monkeypatch, telegram_fals
     _, estado = telegram_falso
     correr(monkeypatch, tmp_path / ".env", guion(url="", mensaje_de_prueba=None))
     assert estado["webhook"] == ""
+
+
+# --------------------------------------------------------------------------
+# Corriendo dentro de PythonAnywhere
+# --------------------------------------------------------------------------
+
+@pytest.fixture
+def en_pythonanywhere(tmp_path, monkeypatch):
+    """Simula una consola de PythonAnywhere con la web app ya creada."""
+    from notita import pythonanywhere as pa
+
+    var_www = tmp_path / "var_www"
+    var_www.mkdir()
+    wsgi = var_www / "unusuario_pythonanywhere_com_wsgi.py"
+    wsgi.write_text("# lo que pone PythonAnywhere por defecto\n")
+    monkeypatch.setattr(pa, "VAR_WWW", var_www)
+    monkeypatch.setenv("USER", "unusuario")
+    monkeypatch.setenv("PYTHONANYWHERE_DOMAIN", "pythonanywhere.com")
+    return wsgi
+
+
+def test_en_pythonanywhere_no_hay_que_tipear_la_url(tmp_path, monkeypatch, telegram_falso,
+                                                    en_pythonanywhere, capsys):
+    _, estado = telegram_falso
+    # Enter en la URL: la sabe sola. (El "s" es para escribir el WSGI.)
+    correr(monkeypatch, tmp_path / ".env",
+           guion(url="", mensaje_de_prueba=None) + ["s", ""])
+
+    assert estado["webhook"] == "https://unusuario.pythonanywhere.com/telegram"
+    assert "Estás en PythonAnywhere" in capsys.readouterr().out
+
+
+def test_en_pythonanywhere_configura_el_wsgi_y_recarga(tmp_path, monkeypatch, telegram_falso,
+                                                       en_pythonanywhere, capsys):
+    wsgi = en_pythonanywhere
+    viejo = wsgi.stat().st_mtime_ns
+    import os
+    os.utime(wsgi, (0, 0))
+
+    correr(monkeypatch, tmp_path / ".env",
+           guion(url="", mensaje_de_prueba=None) + ["s", ""])  # "s" = escribí el WSGI
+
+    contenido = wsgi.read_text()
+    assert str(config.BASE_DIR) in contenido
+    assert "from app import app as application" in contenido
+    # Lo que había quedó guardado.
+    assert "por defecto" in wsgi.with_name(wsgi.name + ".bak").read_text()
+    # Y lo tocó para recargar la web app.
+    assert wsgi.stat().st_mtime_ns > viejo
+
+    salida = capsys.readouterr().out
+    assert "Web app recargada" in salida
+    # Ya no queda nada del Reload a mano; sólo la tarea diaria.
+    assert "botón Reload" not in salida
+    assert "Tasks" in salida
+
+
+def test_si_dice_que_no_no_toca_el_wsgi(tmp_path, monkeypatch, telegram_falso,
+                                        en_pythonanywhere, capsys):
+    wsgi = en_pythonanywhere
+    correr(monkeypatch, tmp_path / ".env",
+           guion(url="", mensaje_de_prueba=None) + ["n", ""])
+
+    assert wsgi.read_text() == "# lo que pone PythonAnywhere por defecto\n"
+    assert "Lo dejo como está" in capsys.readouterr().out
+
+
+def test_reinstalar_no_reescribe_el_wsgi_si_ya_estaba(tmp_path, monkeypatch, telegram_falso,
+                                                      en_pythonanywhere, capsys):
+    from notita import pythonanywhere as pa
+
+    sitio = pa.detectar()
+    pa.escribir_wsgi(sitio, config.BASE_DIR)
+    (sitio.wsgi.with_name(sitio.wsgi.name + ".bak")).unlink()
+
+    correr(monkeypatch, tmp_path / ".env", guion(url=""))  # no pregunta nada
+
+    salida = capsys.readouterr().out
+    assert "ya apuntaba a Notita" in salida
+    assert "Web app recargada" in salida
+
+
+def test_si_no_creo_la_web_app_lo_dice_y_sigue(tmp_path, monkeypatch, telegram_falso, capsys):
+    from notita import pythonanywhere as pa
+
+    vacio = tmp_path / "var_www_vacio"
+    vacio.mkdir()
+    monkeypatch.setattr(pa, "VAR_WWW", vacio)
+    monkeypatch.setenv("USER", "unusuario")
+    monkeypatch.setenv("PYTHONANYWHERE_DOMAIN", "pythonanywhere.com")
+
+    correr(monkeypatch, tmp_path / ".env", guion(url=""))
+
+    salida = capsys.readouterr().out
+    assert "Todavía no creaste la web app" in salida
+    assert "Add a new web app" in salida
+    # Igual terminó: escribió el .env y puso el webhook.
+    assert install.leer_env(tmp_path / ".env")["TELEGRAM_TOKEN"] == TOKEN
+
+
+def test_el_demo_no_toca_pythonanywhere(tmp_path, monkeypatch, en_pythonanywhere):
+    """Aunque se corra el demo dentro de PythonAnywhere, no se escribe nada real."""
+    from notita import demo, llm
+
+    monkeypatch.setattr(install, "tg", install.tg)
+    monkeypatch.setattr(install, "DEMO", False)
+    monkeypatch.setattr(requests, "get", requests.get, raising=False)
+    monkeypatch.setattr(llm, "probar_conexion", llm.probar_conexion)
+    monkeypatch.setattr(llm, "interpretar_mensaje", llm.interpretar_mensaje)
+
+    it = iter(guion(token=demo.TOKEN, url="https://demo.pythonanywhere.com"))
+    monkeypatch.setattr("builtins.input", lambda p="": next(it))
+    monkeypatch.setattr(sys, "argv", ["install.py", "--demo", "--env", str(tmp_path / "d.env")])
+    install.main()
+
+    assert en_pythonanywhere.read_text() == "# lo que pone PythonAnywhere por defecto\n"
 
 
 # --------------------------------------------------------------------------
@@ -355,7 +472,7 @@ def test_al_restaurar_el_webhook_no_le_llegan_los_mensajes_de_la_deteccion(
         tmp_path, monkeypatch, telegram_falso):
     llamadas, estado = telegram_falso
     estado["webhook"] = "https://yaandaba.pythonanywhere.com/telegram"
-    monkeypatch.setattr(install, "paso_url", lambda previo="": "")
+    monkeypatch.setattr(install, "paso_url", lambda previo="", sitio=None: "")
 
     correr(monkeypatch, tmp_path / ".env", guion(url=None, mensaje_de_prueba=None))
 
