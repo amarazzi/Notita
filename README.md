@@ -74,41 +74,97 @@ febrero, pero vuelve al 31 en marzo.
 
 ---
 
-## Puesta en marcha
+## Instalación
 
-### Versión corta (lo que hace la mayoría)
+Son 4 pasos y unos 15 minutos. **No hace falta saber programar**: el instalador te va
+guiando y validando todo.
+
+### 1. Crear el bot (en Telegram)
+
+Hablale a [@BotFather](https://t.me/BotFather) → `/newbot` → elegí nombre y username →
+**guardá el token** que te da.
+
+Después, en el mismo BotFather: `/mybots` → tu bot → **Bot Settings** → **Group
+Privacy** → **Turn off**. ⚠️ Sin esto el bot sólo lee los comandos, no los mensajes
+normales, que es casi todo lo que hace Notita.
+
+### 2. Crear el grupo (en Telegram)
+
+Un grupo con las personas de la casa y el bot adentro. No hace falta que busques el
+`chat_id` ni los `user_id`: el instalador los detecta solos.
+
+### 3. Sacar la API key de Gemini (opcional)
+
+En [Google AI Studio](https://aistudio.google.com/apikey) → *Create API key*. Es gratis y
+no pide tarjeta. Si no querés, salteala: Notita funciona igual en [modo
+local](#modo-local-sin-gemini).
+
+### 4. Instalar
+
+Creá una cuenta gratis en [PythonAnywhere](https://www.pythonanywhere.com). Después, en
+este orden:
+
+> Acá se usa Python **3.13**, que es lo que traen las cuentas nuevas. Si la tuya es vieja
+> y no lo tiene, corré `ls /usr/bin/python3.*` y usá esa versión en todos los comandos
+> (la misma en la consola, en la web app y en la tarea diaria).
+
+**a)** Pestaña *Web* → **Add a new web app** → **Manual configuration** → **Python 3.13**.
+Abrí el link del *WSGI configuration file* y reemplazá **todo** el contenido por esto,
+cambiando `TU_USUARIO`:
+
+```python
+import sys
+
+path = "/home/TU_USUARIO/Notita"
+if path not in sys.path:
+    sys.path.insert(0, path)
+
+from app import app as application  # noqa
+```
+
+**b)** Pestaña *Consoles* → **Bash**, y pegá esto:
 
 ```bash
 git clone https://github.com/amarazzi/Notita.git ~/Notita
 cd ~/Notita
 pip3.13 install --user -r requirements.txt
-python3.13 install.py      # te guía y valida todo
+python3.13 install.py
 ```
 
-El instalador te pide el token y la API key, **detecta solo** el grupo y el `user_id` de
-cada persona (no hace falta buscarlos), **avisa si el privacy mode está encendido**,
-escribe el `.env` y enchufa el webhook. Después:
+El instalador te pide el token y la API key, **detecta solo** el grupo y quién vive en la
+casa, **te avisa si el privacy mode quedó encendido**, escribe la configuración y enchufa
+el webhook. Cuando te pregunte la dirección pública, es
+`https://TU_USUARIO.pythonanywhere.com`.
+
+**c)** Pestaña *Web* → botón **Reload** (la web app lee la configuración al arrancar).
+
+**d)** Pestaña *Tasks* → **Daily task** a las **23:00 UTC** (= 20:00 en Argentina) con:
+
+```
+python3.13 /home/TU_USUARIO/Notita/run_reminders.py
+```
+
+**e)** Chequeá que quedó todo bien:
 
 ```bash
-python3.13 doctor.py       # chequea que todo esté en orden y te dice qué falta
+python3.13 doctor.py
 ```
 
-Lo único que hay que hacer a mano antes es crear el bot y apagar el privacy mode
-(pasos 1 y 2), y después de instalar, programar la rutina de las 20:00 (paso 7).
+Ya está: escribí en el grupo «hay que limpiar la heladera el lunes».
 
-Se puede volver a correr cuando quieras: lo que ya tenías se ofrece como respuesta por
-defecto (Enter lo deja igual), el `.env` anterior queda copiado en `.env.bak` y, si había
-un webhook andando, lo deja como estaba.
+> El instalador se puede volver a correr cuando quieras: lo que ya tenías se ofrece como
+> respuesta por defecto (Enter lo deja igual), el `.env` anterior queda copiado en
+> `.env.bak` y, si había un webhook andando, lo deja como estaba.
 
-### Probarlo sin tener nada
+### Probarlo antes, sin tener nada
 
 ```bash
 python3.13 install.py --demo
 ```
 
 Recorre el instalador completo con un Telegram y un Gemini **de mentira**: no hace falta
-token ni API key, no sale nada a internet y no se toca ninguna configuración (escribe en
-un archivo temporal). Sirve para ver cómo es antes de crear el bot.
+token ni API key, no sale nada a internet y no se toca ninguna configuración. Sirve para
+ver cómo es antes de empezar.
 
 Si ya tenés todo y sólo querés ensayar contra tu bot real sin pisar el `.env`:
 
@@ -116,10 +172,12 @@ Si ya tenés todo y sólo querés ensayar contra tu bot real sin pisar el `.env`
 python3.13 install.py --env /tmp/prueba.env
 ```
 
-El resto de esta sección es el paso a paso detallado, por si algo falla o preferís
-hacerlo a mano.
-
 ---
+
+## Paso a paso detallado
+
+Lo de arriba alcanza. Esto es para cuando algo falla, o si preferís hacerlo a mano sin el
+instalador.
 
 ### 1. Crear el bot en BotFather
 
