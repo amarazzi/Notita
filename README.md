@@ -3,11 +3,6 @@
 Bot de Telegram que hace de todolist compartida de la casa. Le escribís en el grupo como
 le hablarías a una persona, y él organiza, pregunta y recuerda.
 
-![Notita en acción](docs/notita.gif)
-
-<sup>El GIF no está actuado: lo genera el código real del bot
-(`python3 docs/demo/generar_gif.py`).</sup>
-
 - Lenguaje natural con **Gemini** (capa gratuita), con salida estructurada en JSON.
   Es opcional: sin API key funciona igual, con reglas locales.
 - **Las fechas las calcula el código**, nunca el LLM.
@@ -496,10 +491,12 @@ notita/
   reminders.py          recordatorios diarios y resumen semanal
   views.py              textos y teclados
 tests/                  fechas, recurrencias, personas, LLM, instalador y flujo completo
-docs/demo/              genera el GIF del README actuando la conversación de verdad
+docs/demo/              arma un GIF de demo actuando la conversación de verdad
 ```
 
-Para regenerar el GIF (hace falta Google Chrome y ffmpeg):
+Hay un generador de GIF de demostración (no se usa en el README). Corre la
+conversación con el código real y la dibuja como un chat de Telegram; hace falta Google
+Chrome y ffmpeg:
 
 ```bash
 python3 docs/demo/generar_gif.py

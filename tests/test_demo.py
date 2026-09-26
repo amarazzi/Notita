@@ -1,7 +1,8 @@
-"""El GIF del README lo actúa el código real, así que puede romperse sin avisar.
+"""La conversación de demostración, que actúa el código real (`docs/demo/guion.py`).
 
-Estos tests corren la misma conversación que el GIF (sin dibujar nada) para que,
-si mañana cambia un texto o un flujo, falle acá y no quede un GIF que miente.
+Es también un test de integración lindo: un día entero de la casa de punta a punta,
+sin mocks salvo lo que contestaría Gemini. Si mañana cambia un texto o un flujo,
+falla acá y no queda una demo que muestra algo que el bot ya no hace.
 """
 import sys
 from datetime import date
@@ -73,7 +74,9 @@ def test_los_botones_del_gif_son_los_de_verdad(eventos):
     assert "✅ Hecho" in botones and "⏰ Posponer" in botones  # el recordatorio
 
 
-def test_el_gif_existe_y_no_pesa_de_mas():
-    gif = RAIZ / "docs" / "notita.gif"
-    assert gif.exists(), "falta el GIF del README: python3 docs/demo/generar_gif.py"
-    assert gif.stat().st_size < 2_000_000, "el GIF pesa demasiado para un README"
+def test_el_dia_entero_pasa_por_todas_las_piezas(eventos):
+    """Integración: alta en lote, súper, recado, listado y recordatorio, de una."""
+    tipos = [e.tipo for e in eventos]
+    assert tipos.count("burbuja") >= 10
+    assert "separador" in tipos      # el corte de las 20:00
+    assert "edicion" in tipos        # los mensajes que se editan al tocar un botón
