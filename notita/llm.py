@@ -187,6 +187,16 @@ Reglas para anotar:
 """
 
 
+# Modelos cuya cuota gratuita es demasiado chica para usar Notita todos los días.
+# gemini-2.5-flash da 20 requests POR DÍA (quotaId GenerateRequestsPerDay...-FreeTier).
+MODELOS_CON_POCA_CUOTA = ("gemini-2.5-flash", "gemini-2.5-pro", "gemini-3-pro")
+MODELO_RECOMENDADO = "gemini-flash-lite-latest"
+
+
+def cuota_chica(modelo: str) -> bool:
+    return modelo.strip() in MODELOS_CON_POCA_CUOTA
+
+
 def disponible() -> bool:
     """Si no hay API key, Notita trabaja en modo local (ver `heuristica.py`)."""
     return bool(config.GEMINI_API_KEY)

@@ -141,7 +141,7 @@ def test_instalacion_completa(tmp_path, monkeypatch, telegram_falso, capsys):
     assert valores["ALLOWED_CHAT_ID"] == str(GRUPO)
     assert valores["NOTITA_PERSONAS"] == "Axel:111,Barbu:222"
     assert valores["GEMINI_API_KEY"] == "una-key-de-gemini"
-    assert valores["GEMINI_MODEL"] == "gemini-2.5-flash"
+    assert valores["GEMINI_MODEL"] == llm.MODELO_RECOMENDADO
     assert valores["CRON_SECRET"] == ""  # apagado por defecto
     assert len(valores["TELEGRAM_WEBHOOK_SECRET"]) >= 32  # generado solo
 
@@ -224,6 +224,17 @@ def test_hace_backup_del_env_anterior(tmp_path, monkeypatch, telegram_falso):
     backup = tmp_path / ".env.bak"
     assert backup.exists(), list(tmp_path.iterdir())
     assert "viejo" in backup.read_text()
+
+
+def test_no_reofrece_un_modelo_con_cuota_chica(tmp_path, monkeypatch, telegram_falso, capsys):
+    """Si el .env tenía gemini-2.5-flash (20 mensajes por día), propone el bueno."""
+    env = tmp_path / ".env"
+    env.write_text(f"TELEGRAM_TOKEN={TOKEN}\nGEMINI_MODEL=gemini-2.5-flash\n")
+
+    correr(monkeypatch, env, guion())
+
+    assert install.leer_env(env)["GEMINI_MODEL"] == llm.MODELO_RECOMENDADO
+    assert "muy pocos mensajes por día" in capsys.readouterr().out
 
 
 def test_usa_lo_anterior_como_default(tmp_path, monkeypatch, telegram_falso):

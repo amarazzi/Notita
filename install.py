@@ -324,7 +324,12 @@ def paso_gemini(personas: tuple[Persona, ...]) -> tuple[str, str]:
     dato("entiende fechas escritas de cualquier forma y elige categoría y responsable.")
     dato("Si preferís no mandarle nada a Google, dejalo vacío: Notita funciona igual,")
     dato("interpretando todo con reglas locales (más boba, pero 100% en tu servidor).")
-    model = PREVIO.get("GEMINI_MODEL") or "gemini-2.5-flash"
+    model = PREVIO.get("GEMINI_MODEL") or llm.MODELO_RECOMENDADO
+    if llm.cuota_chica(model):
+        # No lo ofrecemos como default: en la capa gratuita da 20 mensajes por día.
+        aviso(f"Tenías {model}, que gratis da muy pocos mensajes por día.")
+        dato(f"Te propongo {llm.MODELO_RECOMENDADO}, que tiene mucha más cuota.")
+        model = llm.MODELO_RECOMENDADO
     anterior = PREVIO.get("GEMINI_API_KEY", "")
     pregunta = ("API key de Google AI Studio (Enter = la que ya tenías)" if anterior
                 else "API key de Google AI Studio (Enter = modo local)")

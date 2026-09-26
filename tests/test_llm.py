@@ -187,6 +187,16 @@ def test_un_400_no_se_reintenta(monkeypatch, sin_esperas):
     assert len(llamadas) == 1
 
 
+@pytest.mark.parametrize("modelo,chica", [
+    ("gemini-2.5-flash", True),          # 20 requests por día en gratis
+    ("  gemini-2.5-flash  ", True),
+    ("gemini-flash-lite-latest", False),
+    ("gemini-3.5-flash-lite", False),
+])
+def test_detecta_los_modelos_con_cuota_chica(modelo, chica):
+    assert llm.cuota_chica(modelo) is chica
+
+
 def test_probar_conexion_explica_el_503(monkeypatch):
     fake_post(monkeypatch, FakeResponse(503, {"error": {"message": "high demand"}}))
     bien, detalle = llm.probar_conexion(key="k")

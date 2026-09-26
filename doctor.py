@@ -215,6 +215,9 @@ def revisar_gemini() -> None:
             "revisá GEMINI_API_KEY y GEMINI_MODEL en el .env")
         return
     ok(f"{config.GEMINI_MODEL} responde")
+    if llm.cuota_chica(config.GEMINI_MODEL):
+        aviso(f"{config.GEMINI_MODEL} da muy pocos mensajes por día en la capa gratuita",
+              f"cambiá GEMINI_MODEL a {llm.MODELO_RECOMENDADO} en el .env y recargá")
 
     data = llm.interpretar_mensaje("comprar una cómoda y limpiar el baño el lunes", "ninguno")
     if data is None:
