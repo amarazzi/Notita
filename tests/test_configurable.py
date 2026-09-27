@@ -205,3 +205,27 @@ def test_la_version_se_lee_al_importar_no_en_cada_pedido(monkeypatch, tmp_path):
     monkeypatch.setattr(config, "BASE_DIR", tmp_path)   # como si el .git desapareciera
     assert config.version() == config.VERSION           # no lo vuelve a leer
     assert config.version() != "desconocida"
+
+
+def test_la_raiz_avisa_si_falta_recargar(monkeypatch):
+    """Tocar el WSGI hace un reload parcial: puede quedar código viejo corriendo.
+
+    Con la versión cargada y la del disco se ve de una sola mirada.
+    """
+    import app as webapp
+
+    monkeypatch.setattr(config, "VERSION", "viejo00")
+    with webapp.app.test_client() as cliente:
+        datos = cliente.get("/").get_json()
+
+    assert datos["version"] == "viejo00"
+    assert datos["en_disco"] == config._leer_version()
+    assert datos["actualizado"] is False
+
+
+def test_si_coinciden_dice_que_esta_actualizado():
+    import app as webapp
+
+    with webapp.app.test_client() as cliente:
+        datos = cliente.get("/").get_json()
+    assert datos["actualizado"] is True

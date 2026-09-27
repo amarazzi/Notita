@@ -376,17 +376,24 @@ La web app dice qué commit tiene cargado, así que se puede chequear desde cual
 
 ```bash
 curl https://USUARIO.pythonanywhere.com/
-# {"bot":"notita","ok":true,"version":"9ed9fac"}
+# {"actualizado":true,"bot":"notita","en_disco":"2b63287","ok":true,"version":"2b63287"}
 ```
 
-Es el commit que tiene **cargado el proceso**, no el del archivo: si hacés `git pull` y
-te olvidás del reload, sigue diciendo el viejo, que es justo lo que hay que saber.
+- `version`: el commit que tiene **cargado el proceso**.
+- `en_disco`: el que hay en la carpeta.
+- `actualizado`: si son el mismo.
 
-Si no coincide con `git rev-parse --short HEAD`, falta actualizar:
+Si `actualizado` es `false`, el `git pull` entró pero **falta recargar la web app**.
+
+### Recargar de verdad
 
 ```bash
 cd ~/Notita && git pull && touch /var/www/USUARIO_pythonanywhere_com_wsgi.py
 ```
+
+Ojo: tocar el archivo WSGI hace un **reload parcial**, y a veces los workers se
+reinician con el código viejo. Si después del `touch` el `curl` sigue diciendo
+`actualizado: false`, usá la forma segura: pestaña **Web** → botón **Reload**.
 
 ### 8. Variables de entorno
 
@@ -494,7 +501,7 @@ También desde el grupo: `/recordatorios`.
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt pytest
 cp .env.example .env
-pytest                 # 561 tests, sin red ni API keys
+pytest                 # 563 tests, sin red ni API keys
 python app.py          # http://localhost:5000
 ```
 

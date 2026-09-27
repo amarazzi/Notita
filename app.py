@@ -22,8 +22,14 @@ def salud():
     """Para saber de una si lo que está corriendo es lo último que pusheaste.
 
         curl https://TU_USUARIO.pythonanywhere.com/
+
+    `version` es el commit que tiene cargado el proceso y `en_disco` el que hay en
+    la carpeta. Si no coinciden, el `git pull` entró pero falta recargar la web app
+    (tocar el WSGI hace un reload parcial y a veces no alcanza: el botón Reload sí).
     """
-    return jsonify(ok=True, bot="notita", version=config.version())
+    en_disco = config._leer_version()
+    return jsonify(ok=True, bot="notita", version=config.version(),
+                   en_disco=en_disco, actualizado=en_disco == config.version())
 
 
 @app.post("/telegram")
