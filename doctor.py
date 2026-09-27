@@ -109,7 +109,15 @@ def revisar_bot() -> dict | None:
         return None
     bien, yo = tg("getMe")
     if not bien:
-        mal(f"el token no sirve: {yo}", "revisá TELEGRAM_TOKEN en el .env")
+        # No es lo mismo "el token está mal" que "no se pudo salir a internet": el
+        # proxy de las cuentas gratuitas de PythonAnywhere falla cada tanto, y decir
+        # "revisá el token" manda a buscar el problema donde no está.
+        if "conectar" in str(yo) or "Proxy" in str(yo) or "timeout" in str(yo).lower():
+            aviso(f"no pude hablar con Telegram desde acá: {yo}",
+                  "suele ser el proxy de PythonAnywhere, que falla cada tanto. "
+                  "Volvé a correr el doctor; si el bot contesta en el grupo, está todo bien")
+        else:
+            mal(f"el token no sirve: {yo}", "revisá TELEGRAM_TOKEN en el .env")
         return None
     ok(f"@{yo['username']} responde")
     if yo.get("can_read_all_group_messages"):

@@ -181,12 +181,13 @@ def test_la_version_es_el_commit():
 
     esperado = subprocess.run(["git", "rev-parse", "--short=7", "HEAD"], cwd=RAIZ,
                               capture_output=True, text=True).stdout.strip()
-    assert config.version() == esperado
+    assert config._leer_version() == esperado
 
 
 def test_sin_repo_no_explota(tmp_path, monkeypatch):
+    """Sin .git (por ejemplo, subido por FTP) no tiene que reventar."""
     monkeypatch.setattr(config, "BASE_DIR", tmp_path)
-    assert config.version() == "desconocida"
+    assert config._leer_version() == "desconocida"
 
 
 def test_la_raiz_de_la_web_app_dice_la_version():
@@ -196,3 +197,11 @@ def test_la_raiz_de_la_web_app_dice_la_version():
         datos = cliente.get("/").get_json()
     assert datos["bot"] == "notita"
     assert datos["version"] == config.version()
+
+
+def test_la_version_se_lee_al_importar_no_en_cada_pedido(monkeypatch, tmp_path):
+    """Si alguien hace `git pull` y se olvida del reload, `/` tiene que seguir
+    diciendo el commit VIEJO: es el que está corriendo de verdad."""
+    monkeypatch.setattr(config, "BASE_DIR", tmp_path)   # como si el .git desapareciera
+    assert config.version() == config.VERSION           # no lo vuelve a leer
+    assert config.version() != "desconocida"

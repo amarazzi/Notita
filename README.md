@@ -374,6 +374,9 @@ curl https://USUARIO.pythonanywhere.com/
 # {"bot":"notita","ok":true,"version":"9ed9fac"}
 ```
 
+Es el commit que tiene **cargado el proceso**, no el del archivo: si hacés `git pull` y
+te olvidás del reload, sigue diciendo el viejo, que es justo lo que hay que saber.
+
 Si no coincide con `git rev-parse --short HEAD`, falta actualizar:
 
 ```bash
@@ -485,7 +488,7 @@ También desde el grupo: `/recordatorios`.
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt pytest
 cp .env.example .env
-pytest                 # 519 tests, sin red ni API keys
+pytest                 # 520 tests, sin red ni API keys
 python app.py          # http://localhost:5000
 ```
 
