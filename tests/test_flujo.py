@@ -65,7 +65,7 @@ def test_carga_en_lote_separa_items(monkeypatch, enviados):
     compras = db.pendientes(CHAT, tipo="compras")
     assert len(casa) == 2
     assert len(compras) == 1
-    assert compras[0]["texto"] == "comprar focos"
+    assert compras[0]["texto"] == "focos"   # sin el verbo, como el resto del súper
     assert compras[0]["due_date"] is None
     assert "Anoté 3 cositas" in textos(enviados)[0]
 
@@ -207,17 +207,21 @@ def test_ignora_otros_chats(monkeypatch, enviados):
 # --------------------------------------------------------------------------
 
 def test_todo_ordena_vencidas_fecha_y_algun_dia(enviados):
-    db.crear_tarea(CHAT, "pagar expensas", categoria="pagos", due=hoy() - timedelta(days=2))
-    db.crear_tarea(CHAT, "limpiar el baño", categoria="limpieza", due=hoy() + timedelta(days=1))
+    # Con fecha fija: el orden de los bloques depende del día de la semana, así que un
+    # `hoy()` real hacía que el test dijera cosas distintas según cuándo se corriera.
+    ref = date(2026, 9, 30)             # miércoles
+    db.crear_tarea(CHAT, "pagar expensas", categoria="pagos", due=ref - timedelta(days=2))
+    db.crear_tarea(CHAT, "sacar la basura", categoria="limpieza", due=ref)
+    db.crear_tarea(CHAT, "limpiar el baño", categoria="limpieza", due=ref + timedelta(days=1))
+    db.crear_tarea(CHAT, "regar", categoria="otros", due=ref + timedelta(days=3))   # sáb 3/10
+    db.crear_tarea(CHAT, "llamar al gas", categoria="tramites", due=ref + timedelta(days=8))
+    db.crear_tarea(CHAT, "renovar el dni", categoria="tramites", due=ref + timedelta(days=20))
     db.crear_tarea(CHAT, "pintar el balcón", categoria="arreglos")
     db.crear_tarea(CHAT, "leche", tipo="compras", categoria="compras")
 
-    db.crear_tarea(CHAT, "renovar el dni", categoria="tramites", due=hoy() + timedelta(days=20))
-    db.crear_tarea(CHAT, "regar", categoria="otros", due=hoy() + timedelta(days=3))
-    db.crear_tarea(CHAT, "sacar la basura", categoria="limpieza", due=hoy())
-
-    texto = views.render_todo(CHAT)
-    orden = ["VENCIDAS", "HOY", "MAÑANA", "ESTA SEMANA", "MÁS ADELANTE", "ALGÚN DÍA", "SÚPER"]
+    texto = views.render_todo(CHAT, ref=ref)
+    orden = ["VENCIDAS", "HOY", "MAÑANA", "ESTA SEMANA", "LA SEMANA QUE VIENE",
+             "MÁS ADELANTE", "ALGÚN DÍA", "SÚPER"]
     posiciones = [texto.index(s) for s in orden]
     assert posiciones == sorted(posiciones)
     # Nada plegado: todo visible sin tocar flechitas.

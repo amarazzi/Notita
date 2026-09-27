@@ -61,7 +61,7 @@ def test_no_tacha_la_tarea_equivocada(enviados, monkeypatch):
     handlers.handle_update(mensaje("ya compré el pan"))
 
     assert [r["texto"] for r in db.pendientes(CHAT)] == ["comprar pantuflas"]
-    assert "No encontré nada parecido" in textos(enviados)[0]
+    assert "No encontré" in textos(enviados)[0]
 
 
 # --------------------------------------------------------------------------

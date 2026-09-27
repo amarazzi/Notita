@@ -50,8 +50,8 @@ def test_la_conversacion_del_gif_sigue_funcionando(eventos):
     todo = textos(eventos)
     # Carga en lote: tres cosas de un mensaje, cada una en su lugar.
     assert "Anoté 3 cositas" in todo
-    assert "Comprar comida para Milo · <i>al súper</i>" in todo
-    assert "Limpiar la heladera · <i>el sábado 10/10</i>" in todo   # «el finde»
+    assert "Comida para Milo · <i>al súper</i>" in todo   # sin el verbo
+    assert "Limpiar la heladera · <i>este finde · Sáb 10/10</i>" in todo
     # Pregunta la fecha de lo que no la tenía, y la aplica al tocar el botón.
     assert "¿Para cuándo «Llamar al plomero»?" in todo
     assert "Llamar al plomero · <i>hoy</i>" in todo

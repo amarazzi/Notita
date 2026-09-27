@@ -16,7 +16,7 @@ from __future__ import annotations
 import re
 
 from . import config
-from .dates import DateSpec, aplanar, extraer_fecha, extraer_recurrencia
+from .dates import DateSpec, aplanar, extraer_fecha, extraer_fecha_y_hora, extraer_recurrencia
 
 # Verbos que indican que algo se HACE (no que se compra).
 ACCIONES = (
@@ -92,6 +92,15 @@ INTENCIONES = (
                        r"|^(tareas|pendientes|la lista)\??$"),
     ("ver_ayuda", r"(como (funciona|te uso|se usa|andas)|que (sabes|podes) hacer"
                   r"|para que servis|ayuda|help)"),
+    # Acciones masivas. Van antes que completar/borrar porque son más específicas.
+    ("vaciar_super", r"(borra|borrar|vacia|vaciar|limpia|saca|tacha|tachar)\s+"
+                     r"((todo|todas?)\s*)?(lo\s+)?(el\s+|la\s+|del?\s+)?"
+                     r"(super|supermercado|lista del super)\b"
+                     r"|^(ya\s+)?(compramos|compre|compré)\s+todo\b"
+                     r"|^listo,?\s+(compramos|compre)\s+todo\b"),
+    ("borrar_todo", r"^(borra|borrar|elimina|eliminar|borrame)\s+"
+                    r"(todo|todas las tareas|todas las cosas|la lista)\b"
+                    r"|^empecemos de cero\b"),
     # «ya» + cualquier verbo en pasado. Antes era una lista cerrada y «ya lavé los
     # platos» o «ya colgué el cuadro» se anotaban como tarea nueva.
     ("completar", r"^(?:ya|listo,? ?ya?)\s+(?:lo|la|los|las|le)?\s*"
@@ -120,24 +129,61 @@ RECADO = re.compile(r"^(?:decile|decil|dile|avisale|avisa|contale|mandale|decile
                     r"(?:que\s+)?(?P<mensaje>.+)$", re.IGNORECASE)
 
 
+# Un verbo en primera persona del pasado arranca el mensaje: «saqué la basura».
+# Se mira el texto SIN aplanar, porque la tilde final es justo la pista que lo
+# distingue del infinitivo ("saqué" vs "sacar", "pagué" vs "pagar").
+PASADO_SUELTO = re.compile(r"^\s*(?!café|puré|bebé|mamá|papá)([a-záéíóúñü]{3,}[éí])\b",
+                           re.IGNORECASE)
+PASADO_IRREGULAR = re.compile(r"^\s*(hice|hicimos|puse|pusimos|fui|fuimos|dije|dijimos|"
+                              r"traje|trajimos|tuve|tuvimos|vine|vinimos)\b", re.IGNORECASE)
+
+
 def _intencion(texto: str) -> tuple[str, str] | None:
     """Devuelve (intencion, referencia) si reconoce un pedido que no sea anotar."""
     t = aplanar(texto).strip(" .!¡?¿,")
+    pasado = PASADO_SUELTO.match(texto) or PASADO_IRREGULAR.match(texto)
+    if pasado:
+        return "completar", _limpiar_referencia(aplanar(texto[pasado.end():]).strip())
     for intencion, patron in INTENCIONES:
         m = re.search(patron, t)
         if not m:
             continue
         if intencion not in ("completar", "borrar"):
             return intencion, ""
+        if re.search(r"\btodo\b|\btodas\b", t):
+            # «borrá todo» sin más: es masivo, no una tarea que se llama "todo".
+            return ("vaciar_super" if re.search(r"super|compras", t) else "borrar_todo"), ""
         # La referencia es lo que queda después del verbo. Si el verbo se comió todo
         # («hecho», «ya fue»), no hay referencia y Notita pregunta cuál era.
-        resto = t[m.end():].strip()
-        anterior = None
-        while resto != anterior:  # sacar el ruido en cadena
-            anterior = resto
-            resto = RUIDO_REFERENCIA.sub("", resto, count=1).strip()
-        return intencion, resto
+        return intencion, _limpiar_referencia(t[m.end():].strip())
     return None
+
+
+def _limpiar_referencia(resto: str) -> str:
+    anterior = None
+    while resto != anterior:  # sacar el ruido en cadena
+        anterior = resto
+        resto = RUIDO_REFERENCIA.sub("", resto, count=1).strip()
+    return resto
+
+
+def objetivos(referencia: str) -> list[str]:
+    """«la yerba y el papel higiénico del super» -> ['yerba', 'papel higiénico'].
+
+    Un mensaje puede nombrar varias tareas; antes sólo se atendía la primera.
+    """
+    if not referencia.strip():
+        return []
+    sin_cola = re.sub(r"\s+(del?|en el)\s+(super|supermercado|lista|listado)\s*$", "",
+                      referencia.strip(), flags=re.IGNORECASE)
+    partes = [p for p in re.split(r"\s*,\s*|\s+y\s+|\s+e\s+|\s*;\s*", sin_cola) if p.strip()]
+    limpios = []
+    for parte in partes:
+        limpio = _limpiar_referencia(parte.strip())
+        # Un pedazo de una o dos letras no alcanza para buscar nada.
+        if len(limpio) >= 3 and limpio not in limpios:
+            limpios.append(limpio)
+    return limpios or ([sin_cola.strip()] if len(sin_cola.strip()) >= 3 else [])
 
 
 def _recado(texto: str, autor: str) -> dict | None:
@@ -167,11 +213,27 @@ def _recado(texto: str, autor: str) -> dict | None:
     return item
 
 
+def _parece_teclado_aporreado(t: str) -> bool:
+    """«asdfghjk» no es una tarea.
+
+    Cinco consonantes seguidas no pasan en castellano («construir» llega a cuatro),
+    y una palabra larga sin vocales tampoco.
+    """
+    for palabra in re.findall(r"[a-z]+", t):
+        if len(palabra) >= 4 and not re.search(r"[aeiou]", palabra):
+            return True
+        if re.search(r"[bcdfghjklmnpqrstvwxyz]{5,}", palabra):
+            return True
+    return False
+
+
 def _charla(texto: str) -> str | None:
     """Si el mensaje es charla, devuelve la respuesta (puede ser ''). Si no, None."""
     t = aplanar(texto).strip(" .!¡?¿,")
     if not re.search(r"[a-z0-9]", t):  # sólo emojis o signos
         return ""
+    if len(t.split()) <= 3 and _parece_teclado_aporreado(t):
+        return "No te entendí 🤔 ¿me lo decís de otra forma?"
     if SALUDOS.match(t):
         return "¡Hola! Acá estoy 🤍"
     if AGRADECIMIENTOS.match(t):
@@ -243,6 +305,7 @@ def _base(texto: str) -> dict:
         "fecha_kind": "desconocida",
         "fecha_weekday": NO_APLICA, "fecha_day": NO_APLICA, "fecha_month": NO_APLICA,
         "fecha_year": NO_APLICA, "fecha_dias": NO_APLICA,
+        "fecha_hora": NO_APLICA, "fecha_minuto": NO_APLICA, "fecha_minutos": NO_APLICA,
         "recur_kind": "ninguna",
         "recur_interval": 1,
         "recur_weekday": NO_APLICA, "recur_monthday": NO_APLICA,
@@ -259,7 +322,7 @@ def item_crudo(texto: str) -> dict:
 def _item(fragmento: str) -> dict | None:
     """Convierte un pedazo de mensaje en un item con la forma que devuelve el LLM."""
     rec, resto = extraer_recurrencia(fragmento)
-    spec, resto = extraer_fecha(resto)
+    spec, resto = extraer_fecha_y_hora(resto)
     plano_completo = aplanar(fragmento)
 
     responsable, nombre = _responsable(plano_completo)
@@ -287,7 +350,8 @@ def _item(fragmento: str) -> dict | None:
     if spec:
         for campo, valor in (("fecha_weekday", spec.weekday), ("fecha_day", spec.day),
                              ("fecha_month", spec.month), ("fecha_year", spec.year),
-                             ("fecha_dias", spec.days)):
+                             ("fecha_dias", spec.days), ("fecha_hora", spec.hora),
+                             ("fecha_minuto", spec.minuto), ("fecha_minutos", spec.minutos)):
             if valor is not None:
                 item[campo] = valor
     if rec:
@@ -340,7 +404,8 @@ def interpretar(texto: str, autor: str = "ninguno") -> dict:
     pedido = _intencion(texto)
     if pedido:
         intencion, referencia = pedido
-        return {"intencion": intencion, "referencia": referencia, "categoria_filtro": "",
+        return {"intencion": intencion, "referencia": referencia,
+                "objetivos": objetivos(referencia), "categoria_filtro": "",
                 "es_tarea": False, "comentario": "", "items": [], "local": True}
 
     recado = _recado(texto, autor)

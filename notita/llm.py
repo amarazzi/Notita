@@ -41,6 +41,11 @@ INTENCIONES = (
     "ver_ayuda",
     "completar",
     "borrar",
+    "vaciar_super",     # «borrá todo lo del súper», «ya compramos todo»
+    "borrar_todo",      # «borrá todas las tareas» (se pide confirmación)
+    "reprogramar",      # «pasá lo del horno para el domingo»
+    "reasignar",        # «lo del veterinario lo hago yo»
+    "renombrar",        # «cambiá "regar" por "regar las plantas del balcón"»
     "charla",
 )
 
@@ -58,6 +63,9 @@ def _item_props() -> dict:
         "fecha_month": {"type": "integer", "description": "1-12. -1 si no aplica."},
         "fecha_year": {"type": "integer", "description": "Año de 4 dígitos. -1 si no aplica."},
         "fecha_dias": {"type": "integer", "description": "Cantidad de días para fecha_kind='en_dias'. -1 si no aplica."},
+        "fecha_hora": {"type": "integer", "description": "Hora del día en formato 24h si la dijeron ('a las 18' -> 18, 'a las 6 de la tarde' -> 18). -1 si no dijeron hora."},
+        "fecha_minuto": {"type": "integer", "description": "Minutos de la hora ('18:30' -> 30). -1 si no aplica."},
+        "fecha_minutos": {"type": "integer", "description": "Para fecha_kind='en_minutos': cuántos minutos faltan ('en 2 horas' -> 120, 'en 10 minutos' -> 10). -1 si no aplica."},
         "recur_kind": {"type": "string", "enum": ["ninguna", "diaria", "semanal", "mensual", "anual"]},
         "recur_interval": {"type": "integer", "description": "Cada cuántos períodos se repite. 1 por defecto."},
         "recur_weekday": {"type": "integer", "description": "0=lunes ... 6=domingo para recurrencia semanal. -1 si no aplica."},
@@ -78,7 +86,26 @@ def schema_mensaje() -> dict:
             "categoria_filtro": {"type": "string", "enum": ["ninguna", *config.CATEGORIAS],
                                  "description": "Si intencion=ver_pendientes y pidieron una categoría puntual; si no, 'ninguna'."},
             "referencia": {"type": "string",
-                           "description": "Si intencion=completar o borrar, de qué tarea hablan, con las palabras del mensaje."},
+                           "description": "Igual que objetivos pero cuando hay uno solo. Si usás objetivos, dejalo en ''."},
+            "objetivos": {
+                "type": "array",
+                "description": "Si intencion=completar, borrar, reprogramar, reasignar o renombrar: UNA ENTRADA POR CADA tarea mencionada, con las palabras del mensaje. 'borrá la yerba y el papel higiénico' -> ['yerba', 'papel higiénico'].",
+                "items": {"type": "string"},
+            },
+            "cambio_fecha_kind": {"type": "string", "enum": list(KINDS),
+                                  "description": "Si intencion=reprogramar: la fecha nueva. Si no, 'desconocida'."},
+            "cambio_fecha_weekday": {"type": "integer", "description": "0=lunes ... 6=domingo. -1 si no aplica."},
+            "cambio_fecha_day": {"type": "integer", "description": "Día del mes. -1 si no aplica."},
+            "cambio_fecha_month": {"type": "integer", "description": "1-12. -1 si no aplica."},
+            "cambio_fecha_year": {"type": "integer", "description": "Año de 4 dígitos. -1 si no aplica."},
+            "cambio_fecha_dias": {"type": "integer", "description": "Días para cambio_fecha_kind='en_dias'. -1 si no aplica."},
+            "cambio_fecha_hora": {"type": "integer", "description": "Hora nueva en 24h. -1 si no dijeron hora."},
+            "cambio_fecha_minuto": {"type": "integer", "description": "Minutos de la hora nueva. -1 si no aplica."},
+            "cambio_fecha_minutos": {"type": "integer", "description": "Minutos desde ahora para cambio_fecha_kind='en_minutos'. -1 si no aplica."},
+            "cambio_responsable": {"type": "string", "enum": list(config.PERSONAS),
+                                   "description": "Si intencion=reasignar: quién queda a cargo. Si no, 'ninguno'."},
+            "cambio_texto": {"type": "string",
+                             "description": "Si intencion=renombrar: el nombre nuevo de la tarea. Si no, ''."},
             "es_tarea": {"type": "boolean", "description": "true si hay algo para anotar (equivale a intencion=anotar)."},
             "comentario": {"type": "string", "description": "Si no hay nada para anotar, una respuesta breve y cariñosa. Si no, ''."},
             "items": {
@@ -93,7 +120,11 @@ def schema_mensaje() -> dict:
             },
         },
         "required": ["intencion", "es_tarea", "items"],
-        "propertyOrdering": ["intencion", "categoria_filtro", "referencia",
+        "propertyOrdering": ["intencion", "categoria_filtro", "referencia", "objetivos",
+                             "cambio_fecha_kind", "cambio_fecha_weekday", "cambio_fecha_day",
+                             "cambio_fecha_month", "cambio_fecha_year", "cambio_fecha_dias",
+                             "cambio_fecha_hora", "cambio_fecha_minuto", "cambio_fecha_minutos",
+                             "cambio_responsable", "cambio_texto",
                              "es_tarea", "comentario", "items"],
     }
 
@@ -136,16 +167,41 @@ Lo PRIMERO es decidir la intención del mensaje:
 - "ver_super": piden ver la lista del súper ("mostrame el súper", "qué falta comprar").
 - "ver_algun_dia": piden ver lo que no tiene fecha.
 - "ver_ayuda": preguntan cómo funcionás o qué sabés hacer.
-- "completar": avisan que algo YA SE HIZO ("ya limpié la heladera", "listo lo del plomero",
-  "hecho lo del veterinario"). Poné en `referencia` las palabras con las que la nombran.
+- "completar": avisan que algo YA SE HIZO, con un VERBO EN PASADO ("ya limpié la
+  heladera", "listo lo del plomero", "hecho lo del veterinario", "ya compré la leche").
 - "borrar": piden borrar, sacar o cancelar algo. Empieza con un verbo de borrar, aunque
   esté mal escrito: "borrá la de la heladera", "elimna lo del plomero", "sacá la del
   turno", "olvidate del veterinario", "eliminar decile a Axel que lo amo".
   OJO: si el mensaje arranca con un verbo de borrar, la intención es "borrar" aunque lo
   que sigue parezca una tarea nueva o un recado: lo que sigue es el NOMBRE de la que hay
-  que borrar, y va entero en `referencia`.
+  que borrar.
+- "vaciar_super": piden limpiar la lista del súper ENTERA ("borrá todo lo del súper",
+  "vaciá el súper", "ya compramos todo", "listo, compré todo").
+  OJO: sólo si NO nombran cosas puntuales. "borrá la yerba y el papel higiénico del
+  súper" nombra dos cosas: eso es "borrar" con objetivos=["yerba", "papel higiénico"],
+  NO vaciar_super. Mencionar el súper no lo convierte en masivo.
+- "borrar_todo": piden borrar TODAS las tareas ("borrá todo", "borrá todas las tareas",
+  "empecemos de cero"). Ojo: si dicen "todo lo del súper" es vaciar_super, y si nombran
+  tareas puntuales es "borrar".
+- "reprogramar": piden mover algo de fecha u hora ("pasá lo del horno para el domingo",
+  "movelo al martes", "lo de la inmobiliaria a las 18"). Poné la fecha nueva en los
+  campos cambio_fecha_*.
+- "reasignar": cambian quién lo hace ("lo del veterinario lo hago yo", "que lo haga
+  Barbu"). Poné cambio_responsable. Si dice "yo", es quien escribe el mensaje.
+- "renombrar": cambian el nombre ("cambiá 'regar' por 'regar las plantas del balcón'",
+  "no era el baño, era la cocina"). Poné el nombre nuevo en cambio_texto.
 - "charla": cualquier otra cosa. items=[] y un comentario breve.
 Cuando la intención no es "anotar", devolvé items=[] y es_tarea=false.
+
+OBJETIVOS: en completar, borrar, reprogramar, reasignar y renombrar puede haber VARIAS
+tareas en un mensaje. Poné UNA ENTRADA POR CADA UNA en `objetivos`, con las palabras del
+mensaje: "borrá la yerba y el papel higiénico del súper" -> objetivos=["yerba", "papel
+higiénico"]; "ya compré la leche y la lavandina" -> objetivos=["leche", "lavandina"].
+Con una sola tarea, igual usá `objetivos` con un elemento.
+
+CUIDADO con el pasado: un infinitivo o un imperativo con fecha pasada NO es completar,
+es una tarea que quedó pendiente. "sacar la basura ayer" -> anotar con fecha_kind="ayer".
+"saqué la basura ayer" (verbo en pasado) -> completar. La diferencia es el verbo, no la fecha.
 
 MUY IMPORTANTE: no prometas nada que no esté en esa lista. Vos podés anotar, mostrar,
 completar, borrar y transmitir recados. No digas "se lo digo", "le aviso" o "te recuerdo"
@@ -185,11 +241,20 @@ Reglas para anotar:
   * "el 3 de octubre" -> fecha_exacta con fecha_day=3, fecha_month=10
   * "todos los 10" -> dia_del_mes con fecha_day=10
   * "algún día", "no sé", "cuando se pueda" -> algun_dia
+  * "ayer" -> ayer ; "anteayer" -> anteayer (tareas que quedaron sin hacer)
+  * "en 2 horas", "en 10 minutos" -> en_minutos con fecha_minutos=120 o 10
   * si el mensaje NO dice nada de cuándo -> desconocida (así se lo preguntamos)
+- LA HORA: si dicen una hora, ponela en fecha_hora (0-23) y fecha_minuto.
+  "el jueves a las 18" -> dia_semana, fecha_weekday=3, fecha_hora=18, fecha_minuto=0.
+  "a las 6 de la tarde" -> fecha_hora=18. "a las 8 de la mañana" -> fecha_hora=8.
+  "18:30" -> fecha_hora=18, fecha_minuto=30. Si no dicen hora, -1.
 - recur_kind si se repite: "cada semana" -> semanal, "todos los 10" -> mensual con
   recur_monthday=10, "todos los martes" -> semanal con recur_weekday=1.
 - Campos numéricos que no aplican: mandá -1.
 - texto: corto, en infinitivo, sin la parte de la fecha ni el nombre del responsable.
+  Escribilo bien, aunque el mensaje venga abreviado: "pa los platos" -> "para los
+  platos", "q" -> "que". En los items de compras no hace falta el verbo: poné la cosa
+  ("comprar lavandina" -> "lavandina").
   (Los recados son la excepción: van tal como los dijeron.)
 - Si algo es muy ambiguo y no sabés si es una tarea o qué significa,
   poné necesita_aclaracion=true y escribí una pregunta corta y tierna.
@@ -311,18 +376,45 @@ def _int(item: dict, key: str) -> int | None:
     return None if v == NO_APLICA or v < 0 else v
 
 
-def spec_de_item(item: dict) -> DateSpec:
-    kind = item.get("fecha_kind") or "desconocida"
+def spec_de_item(item: dict, prefijo: str = "fecha") -> DateSpec:
+    """La intención de fecha que devolvió el modelo.
+
+    `prefijo` permite leer también los campos `cambio_fecha_*`, que son los mismos
+    campos pero para reprogramar una tarea que ya existe.
+    """
+    kind = item.get(f"{prefijo}_kind") or "desconocida"
     if kind not in KINDS:
         kind = "desconocida"
     return DateSpec(
         kind=kind,
-        weekday=_int(item, "fecha_weekday"),
-        day=_int(item, "fecha_day"),
-        month=_int(item, "fecha_month"),
-        year=_int(item, "fecha_year"),
-        days=_int(item, "fecha_dias"),
+        weekday=_int(item, f"{prefijo}_weekday"),
+        day=_int(item, f"{prefijo}_day"),
+        month=_int(item, f"{prefijo}_month"),
+        year=_int(item, f"{prefijo}_year"),
+        days=_int(item, f"{prefijo}_dias"),
+        hora=_int(item, f"{prefijo}_hora"),
+        minuto=_int(item, f"{prefijo}_minuto"),
+        minutos=_int(item, f"{prefijo}_minutos"),
     )
+
+
+def objetivos_de(data: dict) -> list[str]:
+    """Las tareas a las que apunta una acción, sin repetidas ni vacías.
+
+    El modelo puede mandar `objetivos` (lo esperado) o `referencia` (una sola).
+    """
+    crudos = data.get("objetivos") or []
+    if isinstance(crudos, str):
+        crudos = [crudos]
+    if not crudos and data.get("referencia"):
+        crudos = [data["referencia"]]
+    vistos, limpios = set(), []
+    for o in crudos:
+        o = " ".join(str(o).split())
+        if o and o.lower() not in vistos:
+            vistos.add(o.lower())
+            limpios.append(o)
+    return limpios
 
 
 def recurrencia_de_item(item: dict) -> Recurrencia | None:

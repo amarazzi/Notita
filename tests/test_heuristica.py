@@ -195,7 +195,8 @@ def test_sin_api_key_igual_anota(enviados, monkeypatch):
     casa = db.pendientes(CHAT, tipo="casa")
     compras = db.pendientes(CHAT, tipo="compras")
     assert [r["texto"] for r in casa] == ["limpiar la heladera"]
-    assert [r["texto"] for r in compras] == ["falta leche"]
+    # En el súper se guarda la cosa, sin el verbo: «falta leche» -> «leche».
+    assert [r["texto"] for r in compras] == ["leche"]
     assert casa[0]["categoria"] == "limpieza"
     assert date.fromisoformat(casa[0]["due_date"]).weekday() == 0
     # En modo local no se disculpa: es el modo normal.

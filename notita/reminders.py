@@ -11,7 +11,7 @@ import random
 from datetime import date
 
 from . import config, db, telegram, views
-from .dates import ahora, de_iso, formato_humano, hoy, iso
+from .dates import ahora, de_iso, formato_humano, iso
 
 log = logging.getLogger("notita.reminders")
 
@@ -33,24 +33,36 @@ INSISTENTES = [
 
 
 def correr_rutina_diaria(ref: date | None = None, forzar: bool = False,
-                         chat_id: int | None = None) -> dict:
-    """Manda el resumen (si es domingo) y un recordatorio por tarea vencida o que vence hoy.
+                         chat_id: int | None = None, momento=None) -> dict:
+    """Manda lo que toca mandar en este momento.
 
-    `forzar` ignora la marca de "ya recordé esto hoy" (útil para probar).
-    Devuelve un pequeño resumen de lo que hizo, para logs y tests.
+    Se puede llamar una vez por día (como en PythonAnywhere gratis) o cada rato
+    (con un cron externo). En el segundo caso las tareas y los recados con hora
+    propia salen a su hora; lo que no tiene hora sale en la pasada principal, la de
+    `config.HORA_RUTINA`.
+
+    - `momento`: el instante exacto, para tests o para una pasada puntual.
+    - `ref`: el día. Si se pasa sin `momento`, se asume la pasada principal de ese día.
+    - `forzar`: ignora la hora y la marca de "ya lo recordé hoy" (para probar).
     """
     db.init_db()
-    ref = ref or hoy()
     chat_id = chat_id or config.ALLOWED_CHAT_ID
     if not chat_id:
         log.error("No hay ALLOWED_CHAT_ID configurado")
         return {"error": "sin chat_id"}
 
-    resultado = {"fecha": ref.isoformat(), "resumen": False, "recordatorios": 0,
-                 "recados": 0, "agrupadas": 0}
+    momento = momento or _momento_de(ref)
+    ref = momento.date()
+    # En la pasada principal (o forzando) sale todo; en una pasada temprana, sólo lo
+    # que ya tiene su hora cumplida.
+    hora_generica = "00:00" if forzar else config.HORA_RUTINA
+    pasada_principal = forzar or momento.strftime("%H:%M") >= hora_generica
+
+    resultado = {"fecha": ref.isoformat(), "hora": momento.strftime("%H:%M"),
+                 "resumen": False, "recordatorios": 0, "recados": 0, "agrupadas": 0}
 
     # Los recados van primero: son lo más lindo de recibir.
-    for row in db.recados_hasta(chat_id, ref):
+    for row in db.recados_a_entregar(chat_id, momento, hora_generica):
         # Sólo se da por entregado si Telegram lo aceptó. Antes se marcaba igual, y
         # un error de red hacía desaparecer el recado para siempre.
         if telegram.enviar(chat_id, views.render_recado(row)) is None:
@@ -60,11 +72,11 @@ def correr_rutina_diaria(ref: date | None = None, forzar: bool = False,
                       completed_at=ahora().isoformat(timespec="seconds"))
         resultado["recados"] += 1
 
-    if ref.weekday() == 6:  # domingo
+    if ref.weekday() == 6 and pasada_principal:  # domingo
         telegram.enviar_largo(chat_id, views.render_resumen_semanal(chat_id, ref))
         resultado["resumen"] = True
 
-    toca = [r for r in db.vencen_hasta(chat_id, ref)
+    toca = [r for r in db.toca_recordar(chat_id, momento, hora_generica)
             if forzar or r["last_reminded_on"] != iso(ref)]
 
     # Las que ya preguntamos muchas noches van juntas en un solo mensaje. Repetir
@@ -94,6 +106,24 @@ def correr_rutina_diaria(ref: date | None = None, forzar: bool = False,
     return resultado
 
 
+def _momento_de(ref: date | None):
+    """El instante de la corrida.
+
+    Sin `ref` es ahora (lo que pasa en producción). Con `ref` se asume la pasada
+    principal de ese día, así una llamada como `correr_rutina_diaria(ref=hoy())`
+    manda todo lo del día sin depender de la hora en que se la llame.
+    """
+    from datetime import datetime, time
+
+    if ref is None:
+        return ahora()
+    try:
+        h, m = (int(x) for x in config.HORA_RUTINA.split(":"))
+    except ValueError:
+        h, m = 20, 0
+    return datetime.combine(ref, time(h, m), tzinfo=config.TZ)
+
+
 def _anotar_recordatorio(row, ref: date) -> None:
     db.actualizar(row["id"], last_reminded_on=iso(ref),
                   recordada_veces=(row["recordada_veces"] or 0) + 1)
@@ -105,8 +135,15 @@ def _texto_recordatorio(row, ref: date) -> str:
 
     partes = [f"{views.emoji(row)} {linea}"]
     d = de_iso(row["due_date"])
+    hora = views.hora_de(row)
     if d and d < ref:
-        partes.append(f"<i>Venció {formato_humano(d, ref)}.</i>")
+        # `formato_humano` ya dice "venció el 27/9" para las viejas: si le pegábamos
+        # "Venció" adelante salía "Venció venció el 27/9".
+        cuando = formato_humano(d, ref)
+        partes.append(f"<i>{cuando.capitalize()}.</i>" if cuando.startswith("venció")
+                      else f"<i>Venció {cuando}.</i>")
+    elif hora:
+        partes.append(f"<i>Era a las {hora}.</i>")
     if row["responsable"] == "ambos":
         quienes = [telegram.mencion(p.slug) for p in config.PERSONAS_CASA]
         if quienes:

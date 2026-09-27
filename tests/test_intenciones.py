@@ -69,7 +69,7 @@ def test_ver_super(enviados, monkeypatch, casa_con_tareas):
     handlers.handle_update(mensaje("mostrame la lista del super"))
 
     envio = [e for e in enviados if e["metodo"] == "sendMessage"][0]
-    assert "leche" in envio["text"]
+    assert "Leche" in envio["text"]   # con mayúscula, como el resto
     assert envio["reply_markup"]["inline_keyboard"]  # con los botones para tachar
 
 
@@ -128,7 +128,7 @@ def test_si_no_encuentra_nada_lo_dice(enviados, monkeypatch, casa_con_tareas):
     fake_intencion(monkeypatch, "borrar", referencia="la bicicleta")
     handlers.handle_update(mensaje("borrá la de la bicicleta"))
 
-    assert "No encontré nada parecido" in textos(enviados)[0]
+    assert "No encontré" in textos(enviados)[0]
     assert len(db.pendientes(CHAT)) == 4  # no tocó nada
 
 
@@ -140,7 +140,7 @@ def test_si_hay_varias_parecidas_pregunta(enviados, monkeypatch):
     handlers.handle_update(mensaje("borrá la de la heladera"))
 
     envio = [e for e in enviados if e["metodo"] == "sendMessage"][0]
-    assert "¿Cuál de estas?" in envio["text"]
+    assert "¿Cuál de estas" in envio["text"]
     botones = [b[0]["text"] for b in envio["reply_markup"]["inline_keyboard"]]
     assert sorted(botones) == ["descongelar la heladera", "limpiar la heladera"]
     assert len(db.pendientes(CHAT)) == 2  # todavía no borró nada
@@ -171,7 +171,7 @@ def test_no_se_completan_los_recados(enviados, monkeypatch):
     handlers.handle_update(mensaje("ya está eso del te amo"))
 
     assert db.pendientes(CHAT, tipo="recado")  # sigue ahí, se entrega igual
-    assert "No encontré nada" in textos(enviados)[0]
+    assert "No encontré" in textos(enviados)[0]
 
 
 # --------------------------------------------------------------------------

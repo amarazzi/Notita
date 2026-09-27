@@ -19,6 +19,7 @@ le hablarías a una persona, y él organiza, pregunta y recuerda.
 |---|---|
 | Carga en lote | «hay que limpiar la heladera, llamar al plomero y comprar focos» → 3 tareas |
 | Pregunta la fecha | si no decís cuándo, te pregunta con botones (y también entiende texto libre) |
+| Fecha **y hora** | «llevar a Milo al veterinario el jueves a las 18» → guarda la hora y avisa a esa hora ([hace falta que el cron corra seguido](#y-la-hora-exacta)) |
 | Responsable | «Barbu tiene que llamar al veterinario» → queda a nombre de Barbu |
 | Lista del super | «falta leche» va al super, sin fecha ni recordatorios |
 | Recurrentes | «cambiar las piedritas cada semana», «pagar expensas todos los 10» 🔁 |
@@ -31,6 +32,10 @@ le hablarías a una persona, y él organiza, pregunta y recuerda.
 | Súper de una | Botón «compramos todo» en `/super`, y el resumen del domingo te dice cuántas cosas quedan |
 | No duplica | Si anotás algo que ya estaba, te lo dice en vez de guardarlo dos veces |
 | Entiende pedidos | «¿qué hay que hacer?», «mostrame el súper», «ya limpié la heladera», «borrá la del plomero» |
+| Varias de una | «ya compré la leche y la lavandina» tacha las dos, en un solo mensaje |
+| Acciones masivas | «borrá todo lo del súper», «ya compramos todo». Borrar todas las tareas pide confirmación |
+| Editar hablando | «pasá lo del horno para el domingo», «lo del veterinario lo hago yo», «cambiá "regar" por "regar el balcón"» |
+| Avisa si algo no cierra | «el 31 de febrero no existe 🤔 ¿para cuándo era?» en vez de guardar cualquier cosa |
 | Aguanta sin internet | si Gemini falla, interpreta con reglas locales y no pierde la tarea |
 
 ### No hace falta aprender comandos
@@ -295,9 +300,10 @@ python3.13 set_webhook.py --info   # para chequear
 
 ### 7. Las 20:00: elegí una de las dos opciones
 
-Los recordatorios de vencimiento y el resumen de los domingos salen en **una sola
-corrida** diaria (las cuentas gratuitas de PythonAnywhere permiten una única tarea
-diaria, y así tampoco se duplican mensajes).
+Los recordatorios de vencimiento y el resumen de los domingos salen en la **corrida
+principal**, a la hora de `NOTITA_HORA` (20:00 por defecto). Las cuentas gratuitas de
+PythonAnywhere permiten una única tarea diaria, y con eso alcanza para todo salvo la
+hora exacta (ver abajo).
 
 #### Opción A — Tarea diaria de PythonAnywhere (recomendada)
 
@@ -336,6 +342,25 @@ Para probarla a mano:
 curl -H "X-Cron-Secret: TU_CRON_SECRET" \
      https://USUARIO.pythonanywhere.com/cron/recordatorios
 ```
+
+#### ¿Y la hora exacta?
+
+Una tarea con hora («el jueves a las 18») se recuerda **a esa hora**, pero para eso
+alguien tiene que llamar a la rutina a esa hora. O sea:
+
+| Cada cuánto corre | Qué pasa con «el jueves a las 18» |
+|---|---|
+| Una vez al día (opción A) | Se recuerda en la corrida de las 20:00, diciendo «era a las 18:00» |
+| Cada 15 o 30 minutos (opción B) | Se recuerda a las 18:00 |
+
+La corrida principal es, además, la red de seguridad: recuerda todo lo que vence ese día
+aunque su hora ya haya pasado (o todavía no haya llegado), y nunca manda dos veces lo
+mismo el mismo día. Lo mismo vale para los recados con demora («avisale en 10 minutos»):
+con la opción A salen en la corrida de la noche.
+
+Si querés la hora exacta, en cron-job.org poné el cronjob **cada 15 minutos** en vez de
+una vez al día. Es gratis y la rutina es idempotente: si no hay nada para mandar, no
+manda nada.
 
 > Con cualquiera de las dos opciones, acordate de entrar cada 3 meses al botón
 > *Run until 3 months from today* de la web app, o PythonAnywhere la desactiva.
@@ -445,7 +470,7 @@ También desde el grupo: `/recordatorios`.
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt pytest
 cp .env.example .env
-pytest                 # 414 tests, sin red ni API keys
+pytest                 # 516 tests, sin red ni API keys
 python app.py          # http://localhost:5000
 ```
 

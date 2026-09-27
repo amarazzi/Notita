@@ -179,7 +179,11 @@ def actuar():
     eventos.append(Evento("separador", texto="20:00"))
     reloj["hora"] = "20:00"
     antes = max(burbujas)
-    reminders.correr_rutina_diaria()
+    # Con `ref` explícito para que sea la pasada principal del día congelado, y no
+    # dependa de la hora real a la que se corra el guion.
+    from notita import dates
+
+    reminders.correr_rutina_diaria(ref=dates.hoy())
 
     # Llegó el recordatorio del plomero: Axel lo marca hecho.
     recordatorio = ultima_con_botones(antes)

@@ -21,6 +21,7 @@ CREATE TABLE IF NOT EXISTS tasks (
     categoria     TEXT    NOT NULL DEFAULT 'otros',
     responsable   TEXT    NOT NULL DEFAULT 'ninguno',   -- axel | barbu | ambos | ninguno
     due_date      TEXT,                                 -- ISO o NULL ("algún día")
+    due_hora      TEXT,                                 -- "HH:MM" si dijeron la hora
     recur_kind    TEXT,                                 -- diaria | semanal | mensual | anual
     recur_interval INTEGER DEFAULT 1,
     recur_weekday INTEGER,
@@ -67,7 +68,10 @@ def conn():
 # Columnas agregadas después de la primera versión. `CREATE TABLE IF NOT EXISTS` no
 # las agrega a una base que ya existe, así que hay que pedirlas explícitamente.
 COLUMNAS_AGREGADAS = {
-    "tasks": {"recordada_veces": "INTEGER NOT NULL DEFAULT 0"},
+    "tasks": {
+        "recordada_veces": "INTEGER NOT NULL DEFAULT 0",
+        "due_hora": "TEXT",
+    },
 }
 
 
@@ -94,15 +98,17 @@ def crear_tarea(
     due: date | None = None,
     recurrencia: Recurrencia | None = None,
     created_by: str = "ninguno",
+    hora: str | None = None,
 ) -> int:
     with conn() as c:
         cur = c.execute(
             """INSERT INTO tasks (chat_id, texto, tipo, categoria, responsable, due_date,
+                                  due_hora,
                                   recur_kind, recur_interval, recur_weekday, recur_monthday,
                                   created_by, created_at)
-               VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
             (
-                chat_id, " ".join(texto.split()), tipo, categoria, responsable, iso(due),
+                chat_id, " ".join(texto.split()), tipo, categoria, responsable, iso(due), hora,
                 recurrencia.kind if recurrencia else None,
                 recurrencia.interval if recurrencia else 1,
                 recurrencia.weekday if recurrencia else None,
@@ -203,8 +209,55 @@ def vencen_hasta(chat_id: int, limite: date):
             """SELECT * FROM tasks
                WHERE chat_id = ? AND estado = 'pendiente' AND tipo = 'casa'
                  AND due_date IS NOT NULL AND due_date <= ?
-               ORDER BY due_date, id""",
+               ORDER BY due_date, COALESCE(due_hora, '99:99'), id""",
             (chat_id, iso(limite)),
+        ).fetchall()
+
+
+def toca_recordar(chat_id: int, momento, hora_generica: str):
+    """Las tareas que toca recordar en este momento.
+
+    Las que tienen hora propia esperan esa hora; las que no, salen en la pasada
+    principal del día (la de `hora_generica`). Así, si la rutina corre una sola vez
+    por día, todo sigue funcionando como antes; y si corre cada rato, las de las
+    18:00 avisan a las 18:00.
+    """
+    hoy_iso = momento.date().isoformat()
+    ahora_hm = momento.strftime("%H:%M")
+    with conn() as c:
+        return c.execute(
+            """SELECT * FROM tasks
+               WHERE chat_id = ? AND estado = 'pendiente' AND tipo = 'casa'
+                 AND due_date IS NOT NULL AND due_date <= ?
+                 AND (
+                     due_date < ?                              -- vencida: siempre
+                     OR (due_hora IS NOT NULL AND due_hora <= ?)   -- ya es su hora
+                     OR ? >= ?                                     -- la pasada principal
+                 )
+               ORDER BY due_date, COALESCE(due_hora, '99:99'), id""",
+            (chat_id, hoy_iso, hoy_iso, ahora_hm, ahora_hm, hora_generica),
+        ).fetchall()
+
+
+def recados_a_entregar(chat_id: int, momento, hora_generica: str):
+    """Recados cuya fecha y hora ya llegaron.
+
+    Los que tienen hora («en 10 minutos», «a las 18») esperan su hora. Los que no,
+    salen en la pasada principal, que es lo que promete la confirmación
+    («mañana a las 20:00»). Los atrasados salen en cuanto se pueda.
+    """
+    hoy_iso = momento.date().isoformat()
+    ahora_hm = momento.strftime("%H:%M")
+    with conn() as c:
+        return c.execute(
+            """SELECT * FROM tasks
+               WHERE chat_id = ? AND estado = 'pendiente' AND tipo = 'recado'
+                 AND (due_date IS NULL OR due_date < ?
+                      OR (due_date = ? AND (
+                            (due_hora IS NOT NULL AND due_hora <= ?)
+                            OR (due_hora IS NULL AND ? >= ?))))
+               ORDER BY due_date, COALESCE(due_hora, '00:00'), id""",
+            (chat_id, hoy_iso, hoy_iso, ahora_hm, ahora_hm, hora_generica),
         ).fetchall()
 
 

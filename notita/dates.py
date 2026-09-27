@@ -53,6 +53,9 @@ KINDS = (
     "hoy",
     "manana",
     "pasado",
+    "ayer",                 # «sacar la basura ayer»: se anota vencida
+    "anteayer",
+    "en_minutos",           # «en 2 horas», «en 10 minutos»
     "dia_semana",           # "el lunes" -> próximo lunes (nunca hoy)
     "dia_semana_prox",      # "el lunes de la semana que viene"
     "esta_semana",          # vence el domingo de esta semana
@@ -74,9 +77,16 @@ class DateSpec:
     month: int | None = None
     year: int | None = None
     days: int | None = None
+    hora: int | None = None      # hora del día, si la dijeron («a las 18»)
+    minuto: int | None = None
+    minutos: int | None = None   # para «en_minutos»: cuánto falta desde ahora
 
     def to_dict(self) -> dict:
         return {k: v for k, v in self.__dict__.items() if v is not None}
+
+    @property
+    def tiene_hora(self) -> bool:
+        return self.hora is not None or self.kind == "en_minutos"
 
 
 def hoy() -> date:
@@ -138,6 +148,13 @@ def resolve(spec: DateSpec | None, ref: date | None = None) -> date | None:
         return ref + timedelta(days=1)
     if k == "pasado":
         return ref + timedelta(days=2)
+    if k == "ayer":
+        return ref - timedelta(days=1)
+    if k == "anteayer":
+        return ref - timedelta(days=2)
+    if k == "en_minutos" and spec.minutos is not None:
+        # Depende de la hora actual, así que se calcula con el reloj de la casa.
+        return (momento() + timedelta(minutes=spec.minutos)).date()
     if k == "dia_semana" and spec.weekday is not None:
         return proximo_dia_semana(ref, spec.weekday)
     if k == "dia_semana_prox" and spec.weekday is not None:
@@ -161,6 +178,52 @@ def resolve(spec: DateSpec | None, ref: date | None = None) -> date | None:
             candidato = _fecha_segura(ref.year + 1, mes, spec.day)
         return candidato
     return None  # algun_dia / desconocida / spec incompleta
+
+
+def momento() -> datetime:
+    """El instante actual, pero tomando el día de `hoy()`.
+
+    Importa para los tests y para el generador de la demo, que congelan `hoy()`: si
+    la hora viniera del reloj real, las cuentas con fecha y hora no coincidirían.
+    """
+    reloj = ahora()
+    return datetime.combine(hoy(), reloj.timetz())
+
+
+def resolver_momento(spec: DateSpec | None,
+                     instante: datetime | None = None) -> tuple[date | None, str | None]:
+    """Fecha y hora («HH:MM») de una intención. La hora es None si no la dijeron."""
+    instante = instante or momento()
+    if spec is None:
+        return None, None
+    if spec.kind == "en_minutos" and spec.minutos is not None:
+        objetivo = instante + timedelta(minutes=spec.minutos)
+        return objetivo.date(), objetivo.strftime("%H:%M")
+    fecha = resolve(spec, instante.date())
+    if fecha is None or spec.hora is None:
+        return fecha, None
+    hora = min(23, max(0, spec.hora))
+    minuto = min(59, max(0, spec.minuto or 0))
+    return fecha, f"{hora:02d}:{minuto:02d}"
+
+
+def fecha_imposible(spec: DateSpec | None) -> bool:
+    """«el 31 de febrero» no existe: mejor preguntar que guardar el 28 en silencio."""
+    if spec is None or spec.kind != "fecha_exacta" or spec.day is None:
+        return False
+    mes = spec.month or 1
+    if not 1 <= mes <= 12 or not 1 <= spec.day <= 31:
+        return True
+    anio = spec.year or hoy().year
+    return spec.day > calendar.monthrange(anio, mes)[1]
+
+
+def es_este_finde(d: date | None, ref: date | None = None) -> bool:
+    """Si la fecha es el sábado o domingo de la semana en curso."""
+    if d is None:
+        return False
+    ref = ref or hoy()
+    return d.weekday() >= 5 and lunes_de_la_semana(d) == lunes_de_la_semana(ref)
 
 
 # --------------------------------------------------------------------------
@@ -326,6 +389,12 @@ _PATRONES_FECHA: list[tuple[str, object]] = [
     (r"\bpasado manana\b", lambda m: DateSpec("pasado")),
     (r"\bmanana\b", lambda m: DateSpec("manana")),
     (r"\bhoy\b", lambda m: DateSpec("hoy")),
+    (r"\banteayer\b", lambda m: DateSpec("anteayer")),
+    (r"\bayer\b", lambda m: DateSpec("ayer")),
+    # «en 2 horas», «en 10 minutos». Va antes que «en N días» porque comparten forma.
+    (rf"\ben (\d+|{'|'.join(_NUMEROS)}) (horas?|minutos?|mins?)\b",
+     lambda m: DateSpec("en_minutos",
+                        minutos=_numero(m.group(1)) * (60 if m.group(2).startswith("hora") else 1))),
     # "el lunes", "el lunes que viene", "el lunes de la semana que viene"
     (rf"\b(?:el |los |este |para el )?({_RE_DIA_SEMANA})\b"
      r"(?:\s+(?:de\s+)?(?:la\s+)?semana\s+(?:que viene|proxima))?",
@@ -399,10 +468,59 @@ def _extraer(texto: str, patrones: list) -> tuple[object | None, str]:
     return armar(m), _recortar(texto, m.span())
 
 
+# La hora del día se busca aparte de la fecha: «el jueves a las 18» tiene las dos.
+_FRANJAS = {"mañana": 9, "manana": 9, "tarde": 16, "noche": 21, "mediodia": 12,
+            "mediodía": 12, "madrugada": 3}
+
+_PATRONES_HORA: list[tuple[str, object]] = [
+    # «a las 18:30», «18:30», «a las 8 y media»
+    (r"\b(?:a la |a las |)?([01]?\d|2[0-3]):([0-5]\d)\s*(?:hs?|horas)?\b",
+     lambda m: (int(m.group(1)), int(m.group(2)))),
+    (r"\b(?:a la|a las)\s+([01]?\d|2[0-3])\s+y\s+media\b",
+     lambda m: (int(m.group(1)), 30)),
+    # «a las 18», «a las 6 de la tarde», «18 hs».
+    # Ojo con el `\s`: si se lo come el grupo de «hs», el «de la tarde» queda afuera
+    # y «a las 6 de la tarde» termina siendo a las 6 de la mañana.
+    (rf"\b(?:a la|a las)\s+([01]?\d|2[0-3])(?:\s*(?:hs?|horas))?"
+     rf"(?:\s+(?:de|por)\s+la\s+({'|'.join(_FRANJAS)}))?\b",
+     lambda m: (_ajustar_franja(int(m.group(1)), m.group(2)), 0)),
+    (r"\b([01]?\d|2[0-3])\s*(?:hs|hrs)\b", lambda m: (int(m.group(1)), 0)),
+    # «al mediodía», «a la noche», «de la tarde»
+    (rf"\b(?:al|a la|de la|por la|de|por)\s+({'|'.join(_FRANJAS)})\b",
+     lambda m: (_FRANJAS[m.group(1)], 0)),
+]
+
+
+def _ajustar_franja(hora: int, franja: str | None) -> int:
+    """«a las 6 de la tarde» son las 18."""
+    if franja in ("tarde", "noche") and hora < 12:
+        return hora + 12
+    if franja in ("mañana", "manana", "madrugada") and hora == 12:
+        return 0
+    return hora
+
+
+def extraer_hora(texto: str) -> tuple[tuple[int, int] | None, str]:
+    """Saca la hora del día: «el jueves a las 18» -> ((18, 0), 'el jueves')."""
+    return _extraer(texto, _PATRONES_HORA)
+
+
 def extraer_fecha(texto: str) -> tuple[DateSpec | None, str]:
     """Saca la expresión de fecha de una frase: «regar el lunes» -> (lunes, 'regar')."""
     spec, resto = _extraer(texto, _PATRONES_FECHA)
     return spec, resto
+
+
+def extraer_fecha_y_hora(texto: str) -> tuple[DateSpec | None, str]:
+    """Las dos cosas juntas: «llamar el jueves a las 18» -> (jueves 18:00, 'llamar')."""
+    hm, resto = extraer_hora(texto)
+    spec, resto = extraer_fecha(resto)
+    if hm is None:
+        return spec, resto
+    if spec is None:
+        spec = DateSpec("hoy")     # «a las 18» sin día es hoy
+    return DateSpec(spec.kind, weekday=spec.weekday, day=spec.day, month=spec.month,
+                    year=spec.year, days=spec.days, hora=hm[0], minuto=hm[1]), resto
 
 
 def extraer_recurrencia(texto: str) -> tuple[Recurrencia | None, str]:
@@ -420,6 +538,45 @@ def _fecha_segura(year: int, month: int, day: int) -> date:
     """Construye una fecha recortando el día al último del mes (31 -> 28/29/30)."""
     ultimo = calendar.monthrange(year, month)[1]
     return date(year, month, min(day, ultimo))
+
+
+_VERBOS_DE_COMPRA = re.compile(
+    r"^(?:hay que |habria que |tenemos que |tengo que |)"
+    r"(?:comprar|comprame|compra|traer|traeme|trae|conseguir|consegui|llevar|"
+    r"reponer|encargar|pedir)\s+", re.IGNORECASE)
+
+
+def limpiar_item_de_super(texto: str) -> str:
+    """«comprar detergente para los platos» -> «detergente para los platos».
+
+    En la lista del súper el verbo no aporta y además queda inconsistente: «falta
+    leche» daba «Leche» y «comprar lavandina» daba «Comprar lavandina».
+    """
+    limpio = " ".join((texto or "").split())
+    limpio = _VERBOS_DE_COMPRA.sub("", limpio, count=1)
+    limpio = re.sub(r"^(?:falta|faltan|se acabo|se acabó|se termino|se terminó)\s+", "",
+                    limpio, count=1, flags=re.IGNORECASE)
+    limpio = limpio.strip(" ,.;")
+    return limpio or " ".join((texto or "").split())
+
+
+def texto_recurrencia(rec: Recurrencia | None) -> str:
+    """«cada 3 días», «todos los martes», «todos los 10». Vacío si no se repite."""
+    if rec is None or rec.kind not in ("diaria", "semanal", "mensual", "anual"):
+        return ""
+    n = max(1, rec.interval or 1)
+    if rec.kind == "diaria":
+        return "todos los días" if n == 1 else f"cada {n} días"
+    if rec.kind == "semanal":
+        if rec.weekday is not None and 0 <= rec.weekday <= 6 and n == 1:
+            dia = DIAS_NOMBRE[rec.weekday]
+            return f"todos los {dia}" + ("s" if rec.weekday >= 5 else "")
+        return "cada semana" if n == 1 else f"cada {n} semanas"
+    if rec.kind == "mensual":
+        if rec.monthday and n == 1:
+            return f"todos los {rec.monthday}"
+        return "cada mes" if n == 1 else f"cada {n} meses"
+    return "todos los años" if n == 1 else f"cada {n} años"
 
 
 def proxima_ocurrencia(rec: Recurrencia | None, desde: date) -> date | None:
