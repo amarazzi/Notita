@@ -8,6 +8,7 @@ from . import config, db
 from .dates import (
     DIAS_NOMBRE,
     Recurrencia,
+    cuando_se_entrega,
     de_iso,
     domingo_de_la_semana,
     es_este_finde,
@@ -188,10 +189,12 @@ def confirmacion(row: sqlite3.Row, ref: date, fecha_txt: str | None = None) -> s
         a_quien = config.NOMBRES.get(row["responsable"], row["responsable"])
         d = de_iso(row["due_date"])
         hora = hora_de(row)
-        # Con hora, se manda a esa hora; sin hora, los de hoy salen ya y el resto en
-        # la pasada principal.
+        # Se anuncia el momento en que va a salir DE VERDAD, que depende de cada cuánto
+        # corre la rutina: prometer «22:07» y entregarlo a las 20:00 del día siguiente
+        # es peor que decir «22:10» desde el principio.
         if hora:
-            cuando = cuando_humano(d, hora, ref)
+            fecha_real, hora_real = cuando_se_entrega(d, hora, ref)
+            cuando = cuando_humano(fecha_real, hora_real, ref)
         elif d == ref:
             cuando = "ahora mismo"
         else:

@@ -207,6 +207,39 @@ def resolver_momento(spec: DateSpec | None,
     return fecha, f"{hora:02d}:{minuto:02d}"
 
 
+def cuando_se_entrega(fecha: date | None, hora: str | None,
+                      ref: date | None = None) -> tuple[date | None, str | None]:
+    """Cuándo va a salir de verdad algo pedido para (fecha, hora).
+
+    Notita no puede avisar a las 22:07 si la rutina corre cada 5 minutos: va a salir
+    22:10. Y si corre una sola vez por día, sale en la pasada principal. Mejor decir
+    la hora real que prometer una que no se va a cumplir.
+    """
+    from . import config
+
+    if fecha is None:
+        return None, None
+    ref = ref or hoy()
+    if hora is None:
+        return fecha, config.HORA_RUTINA
+
+    h, m = (int(x) for x in hora.split(":"))
+    if config.CRON_MINUTOS:
+        paso = config.CRON_MINUTOS
+        redondeado = -(-m // paso) * paso        # al siguiente múltiplo, hacia arriba
+        if redondeado >= 60:
+            h, redondeado = h + 1, 0
+        if h >= 24:                               # pasa al día siguiente
+            return fecha + timedelta(days=1), f"{h - 24:02d}:{redondeado:02d}"
+        return fecha, f"{h:02d}:{redondeado:02d}"
+
+    # Una sola corrida por día: si la hora ya pasó para esa corrida, sale en la del día
+    # siguiente (los recados con hora esperan su hora, no se adelantan).
+    if hora <= config.HORA_RUTINA:
+        return fecha, config.HORA_RUTINA
+    return fecha + timedelta(days=1), config.HORA_RUTINA
+
+
 def fecha_imposible(spec: DateSpec | None) -> bool:
     """«el 31 de febrero» no existe: mejor preguntar que guardar el 28 en silencio."""
     if spec is None or spec.kind != "fecha_exacta" or spec.day is None:

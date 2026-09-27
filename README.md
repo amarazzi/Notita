@@ -37,6 +37,7 @@ le hablarías a una persona, y él organiza, pregunta y recuerda.
 | Editar hablando | «pasá lo del horno para el domingo», «lo del veterinario lo hago yo», «cambiá "regar" por "regar el balcón"» |
 | Avisa si algo no cierra | «el 31 de febrero no existe 🤔 ¿para cuándo era?» en vez de guardar cualquier cosa |
 | Aguanta sin internet | si Gemini falla, interpreta con reglas locales y no pierde la tarea |
+| No pierde respuestas | si no puede mandar un mensaje (el proxy de PythonAnywhere falla cada tanto), queda en cola y sale en la próxima |
 
 ### No hace falta aprender comandos
 
@@ -358,9 +359,13 @@ aunque su hora ya haya pasado (o todavía no haya llegado), y nunca manda dos ve
 mismo el mismo día. Lo mismo vale para los recados con demora («avisale en 10 minutos»):
 con la opción A salen en la corrida de la noche.
 
-Si querés la hora exacta, en cron-job.org poné el cronjob **cada 15 minutos** en vez de
-una vez al día. Es gratis y la rutina es idempotente: si no hay nada para mandar, no
-manda nada.
+Si querés la hora exacta, en cron-job.org poné el cronjob **cada 5 o 15 minutos** en vez
+de una vez al día, y avisale a Notita poniendo `NOTITA_CRON_MINUTOS=5` en el `.env`. Es
+gratis y la rutina es idempotente: si no hay nada para mandar, no manda nada.
+
+Ese `NOTITA_CRON_MINUTOS` es para que **no prometa lo que no puede cumplir**: si le pedís
+un aviso a las 22:07 y el cron corre cada 5 minutos, contesta «22:10», que es cuando va a
+salir de verdad. Con `0` (una corrida diaria) contesta la hora de la corrida.
 
 > Con cualquiera de las dos opciones, acordate de entrar cada 3 meses al botón
 > *Run until 3 months from today* de la web app, o PythonAnywhere la desactiva.
@@ -407,6 +412,7 @@ GEMINI_MODEL=gemini-flash-lite-latest
 | `NOTITA_CONTEXTO` | Opcional: dato libre de la casa para que el LLM acierte mejor |
 | `NOTITA_TZ` | Opcional: zona horaria. Por defecto `America/Argentina/Buenos_Aires` |
 | `NOTITA_HORA` | Opcional: a qué hora corre la rutina. Por defecto `20:00` |
+| `NOTITA_CRON_MINUTOS` | Opcional: cada cuántos minutos corre el cron. `0` = una vez al día |
 | `CRON_SECRET` | Habilita `/cron/recordatorios` (opción B). **Vacío = ruta apagada** |
 | `GEMINI_API_KEY` | La key de Google AI Studio |
 | `GEMINI_MODEL` | Por defecto `gemini-flash-lite-latest` |
@@ -488,7 +494,7 @@ También desde el grupo: `/recordatorios`.
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt pytest
 cp .env.example .env
-pytest                 # 520 tests, sin red ni API keys
+pytest                 # 538 tests, sin red ni API keys
 python app.py          # http://localhost:5000
 ```
 

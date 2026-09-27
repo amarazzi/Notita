@@ -77,6 +77,15 @@ def version() -> str:
     return VERSION
 
 
+# Cada cuántos minutos corre la rutina. 0 = una sola vez por día (la tarea diaria de
+# PythonAnywhere). Con un cron externo se puede poner 5, 15, 30... Notita lo usa para
+# no prometer una hora que no va a poder cumplir.
+try:
+    CRON_MINUTOS = max(0, int(os.getenv("NOTITA_CRON_MINUTOS", "0")))
+except ValueError:
+    CRON_MINUTOS = 0
+
+
 def hora_rutina_en_utc(hora: str | None = None) -> str:
     """La hora de la rutina pasada a UTC, que es como se programan los crons."""
     from datetime import datetime, timezone

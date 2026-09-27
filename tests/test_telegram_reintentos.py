@@ -24,10 +24,10 @@ def test_reintenta_si_falla_la_conexion(monkeypatch):
 
     monkeypatch.setattr(real.requests, "post", post)
     assert real.llamar("sendMessage", chat_id=1, text="hola") == {"message_id": 7}
-    assert len(llamadas) == 3
+    assert len(llamadas) == 3   # falló dos veces y salió en el tercero
 
 
-def test_se_rinde_despues_de_3_intentos(monkeypatch, caplog):
+def test_se_rinde_despues_de_los_intentos(monkeypatch, caplog):
     import importlib
     real = importlib.reload(telegram)
     monkeypatch.setattr(config, "TELEGRAM_TOKEN", "123:abc")
@@ -40,5 +40,5 @@ def test_se_rinde_despues_de_3_intentos(monkeypatch, caplog):
 
     monkeypatch.setattr(real.requests, "post", post)
     assert real.llamar("sendMessage", chat_id=1, text="hola") is None
-    assert len(llamadas) == 3
+    assert len(llamadas) == real.INTENTOS
     assert "123:abc" not in caplog.text

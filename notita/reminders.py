@@ -59,7 +59,8 @@ def correr_rutina_diaria(ref: date | None = None, forzar: bool = False,
     pasada_principal = forzar or momento.strftime("%H:%M") >= hora_generica
 
     resultado = {"fecha": ref.isoformat(), "hora": momento.strftime("%H:%M"),
-                 "resumen": False, "recordatorios": 0, "recados": 0, "agrupadas": 0}
+                 "resumen": False, "recordatorios": 0, "recados": 0, "agrupadas": 0,
+                 "de_la_cola": telegram.vaciar_cola(chat_id)}
 
     # Los recados van primero: son lo más lindo de recibir.
     for row in db.recados_a_entregar(chat_id, momento, hora_generica):

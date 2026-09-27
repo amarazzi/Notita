@@ -37,6 +37,17 @@ CREATE TABLE IF NOT EXISTS tasks (
 );
 CREATE INDEX IF NOT EXISTS idx_tasks_estado ON tasks (estado, tipo, due_date);
 
+-- Mensajes que no se pudieron mandar (el proxy de PythonAnywhere falla cada tanto).
+-- Se reintentan en la próxima oportunidad, así una confirmación no se pierde nunca.
+CREATE TABLE IF NOT EXISTS salientes (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    chat_id    INTEGER NOT NULL,
+    texto      TEXT    NOT NULL,
+    teclado    TEXT,
+    creado_en  TEXT    NOT NULL,
+    intentos   INTEGER NOT NULL DEFAULT 1
+);
+
 -- Los update_id que ya procesamos, para no repetir si Telegram reenvía.
 CREATE TABLE IF NOT EXISTS updates_vistos (
     update_id INTEGER PRIMARY KEY,
@@ -333,6 +344,48 @@ def sin_fecha(chat_id: int):
 # --------------------------------------------------------------------------
 # Estado conversacional
 # --------------------------------------------------------------------------
+
+# Después de tantos intentos fallidos, el mensaje se descarta: si no, una cola vieja
+# se le vuelca encima al grupo días después.
+INTENTOS_SALIENTE = 5
+
+
+def encolar_saliente(chat_id: int, texto: str, teclado: list | None) -> int:
+    with conn() as c:
+        cur = c.execute(
+            "INSERT INTO salientes (chat_id, texto, teclado, creado_en) VALUES (?,?,?,?)",
+            (chat_id, texto, json.dumps(teclado) if teclado else None,
+             ahora().isoformat(timespec="seconds")))
+        return int(cur.lastrowid)
+
+
+def salientes_pendientes(chat_id: int | None = None, limite: int = 5):
+    """Los que quedaron sin mandar, del más viejo al más nuevo."""
+    with conn() as c:
+        if chat_id is None:
+            return c.execute("SELECT * FROM salientes ORDER BY id LIMIT ?",
+                             (limite,)).fetchall()
+        return c.execute("SELECT * FROM salientes WHERE chat_id = ? ORDER BY id LIMIT ?",
+                         (chat_id, limite)).fetchall()
+
+
+def borrar_saliente(saliente_id: int) -> None:
+    with conn() as c:
+        c.execute("DELETE FROM salientes WHERE id = ?", (saliente_id,))
+
+
+def sumar_intento_saliente(saliente_id: int) -> int:
+    """Suma un intento y devuelve cuántos van. Si ya son demasiados, lo borra."""
+    with conn() as c:
+        c.execute("UPDATE salientes SET intentos = intentos + 1 WHERE id = ?",
+                  (saliente_id,))
+        fila = c.execute("SELECT intentos FROM salientes WHERE id = ?",
+                         (saliente_id,)).fetchone()
+        intentos = fila["intentos"] if fila else INTENTOS_SALIENTE
+        if intentos >= INTENTOS_SALIENTE:
+            c.execute("DELETE FROM salientes WHERE id = ?", (saliente_id,))
+    return intentos
+
 
 def update_nuevo(update_id: int | None) -> bool:
     """True si este update no se procesó antes. Lo registra de paso.

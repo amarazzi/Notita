@@ -40,6 +40,9 @@ CHISTES_POSPONER = [
 
 def handle_update(update: dict) -> None:
     db.init_db()
+    # Si quedó algo sin mandar (el proxy falla cada tanto), va primero: así una
+    # confirmación perdida llega junto con la respuesta de este mensaje.
+    telegram.vaciar_cola()
     # Telegram reenvía el update si el webhook tarda o falla, y con Gemini lento
     # eso pasa: sin esta guarda, el mismo mensaje se anotaba dos veces.
     if not db.update_nuevo(update.get("update_id")):
@@ -366,10 +369,16 @@ def _interpretar_y_guardar(chat_id: int, texto: str, autor: str,
             imposible = fecha_imposible(spec)
             due, hora = (None, None) if imposible else resolver_momento(spec)
             if due is None and rec is not None:
-                # Recurrente sin fecha explícita: la primera ocurrencia es la más cercana.
-                from .dates import proxima_ocurrencia
-
-                due = proxima_ocurrencia(rec, ref - timedelta(days=1))
+                # Recurrente sin fecha explícita: arranca hoy. Con «cada 3 días» se
+                # calculaba la próxima ocurrencia desde ayer y daba pasado mañana, que
+                # no es lo que uno espera al anotarla.
+                due = ref
+                if rec.kind == "semanal" and rec.weekday is not None:
+                    from .dates import proximo_dia_semana
+                    due = ref if ref.weekday() == rec.weekday else proximo_dia_semana(ref, rec.weekday)
+                elif rec.kind == "mensual" and rec.monthday:
+                    from .dates import proxima_ocurrencia
+                    due = proxima_ocurrencia(rec, ref - timedelta(days=1))
 
         texto_item = item.get("texto") or texto
         if tipo == "compras":
@@ -396,9 +405,13 @@ def _interpretar_y_guardar(chat_id: int, texto: str, autor: str,
             created_by=autor,
             hora=hora,
         )
-        # «el finde» se aclara sin perder el día que tocó.
-        fecha_txt = (views.texto_del_finde(due, ref)
-                     if spec.kind == "fin_de_semana" and due else None)
+        # «el finde» se aclara sin perder el día que tocó, y una fecha imposible no
+        # se muestra como «algún día» (lo era, y confundía: la fecha está por venir).
+        fecha_txt = None
+        if imposible:
+            fecha_txt = "¿para cuándo?"
+        elif spec.kind == "fin_de_semana" and due:
+            fecha_txt = views.texto_del_finde(due, ref)
         confirmaciones.append(views.confirmacion(db.obtener(task_id), ref, fecha_txt))
         if imposible:
             fechas_imposibles.append((task_id, spec))
@@ -617,8 +630,10 @@ def _compramos_todo(chat_id: int, message_id: int | None, cq_id: str | None,
         else:
             db.marcar_hecha(row["id"], quien)
     icono = "🗑️" if borrar else "✅"
-    verbo = "Borradas" if borrar else "Tachadas"
-    contestar(f"{icono} {verbo} las {len(compras)}:\n"
+    una = len(compras) == 1
+    verbo = ("Borrada" if borrar else "Tachada") if una else ("Borradas" if borrar else "Tachadas")
+    cuantas = "" if una else f" las {len(compras)}"
+    contestar(f"{icono} {verbo}{cuantas}:\n"
               + "\n".join(f"<s>{views.texto_tarea(r)}</s>" for r in compras[:10]),
               "¡Listo! 🛒")
 

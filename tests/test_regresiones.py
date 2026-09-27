@@ -293,7 +293,8 @@ def test_una_espera_larguisima_se_recorta(monkeypatch):
         {"ok": False, "error_code": 429, "parameters": {"retry_after": 300}}))
 
     assert tg.llamar("sendMessage", chat_id=1, text="hola") is None
-    assert dormidas == [tg.ESPERA_MAXIMA, tg.ESPERA_MAXIMA]
+    # Una espera por intento menos el último, todas recortadas al techo.
+    assert dormidas == [tg.ESPERA_MAXIMA] * (tg.INTENTOS - 1)
 
 
 def test_un_error_que_no_es_429_no_se_reintenta(monkeypatch):

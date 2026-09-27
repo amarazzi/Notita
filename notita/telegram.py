@@ -1,6 +1,7 @@
 """Cliente mínimo de la Bot API de Telegram."""
 from __future__ import annotations
 
+import json
 import logging
 import time
 
@@ -11,8 +12,11 @@ from . import config
 log = logging.getLogger("notita.telegram")
 API = "https://api.telegram.org/bot{token}/{method}"
 TIMEOUT = 20
-INTENTOS = 3
-ESPERA = 1  # segundos (1, despues 2)
+# El proxy de las cuentas gratuitas de PythonAnywhere falla de a ratos, no de a
+# instantes: con 3 intentos y 3 segundos no alcanzaba y el mensaje se perdía. Igual
+# hay un techo, porque esto corre dentro del webhook (después va a la cola de salida).
+INTENTOS = 4
+ESPERA = 1  # segundos: 1, 2, 4
 # Cuánto se acepta esperar cuando Telegram pide frenar. Más que esto no se aguanta:
 # el webhook tiene que contestarle a Telegram antes de que lo reintente.
 ESPERA_MAXIMA = 5
@@ -47,7 +51,7 @@ def llamar(metodo: str, **payload) -> dict | None:
             log.warning("Telegram %s: error de conexion (%s), intento %d/%d",
                         metodo, type(e).__name__, intento, INTENTOS)
             if intento < INTENTOS:
-                time.sleep(ESPERA * intento)
+                time.sleep(ESPERA * 2 ** (intento - 1))
         except Exception as e:
             log.error("Error llamando a Telegram %s: %s", metodo, type(e).__name__)
             return None
@@ -82,20 +86,54 @@ def enviar_largo(chat_id: int, texto: str, teclado: list | None = None) -> dict 
     return ultimo
 
 
-def enviar(chat_id: int, texto: str, teclado: list | None = None,
-           responder_a: int | None = None) -> dict | None:
-    payload = {
-        "chat_id": chat_id,
-        "text": texto,
-        "parse_mode": "HTML",
-        "disable_web_page_preview": True,
-    }
+def vaciar_cola(chat_id: int | None = None, limite: int = 5) -> int:
+    """Reintenta los mensajes que quedaron sin mandar. Devuelve cuántos salieron.
+
+    Se llama al empezar a procesar cada mensaje y en la rutina diaria: así una
+    confirmación que no salió por un hipo del proxy llega en la próxima, en vez de
+    desaparecer.
+    """
+    from . import db
+
+    salieron = 0
+    for fila in db.salientes_pendientes(chat_id, limite):
+        teclado = json.loads(fila["teclado"]) if fila["teclado"] else None
+        # Se llama directo a `llamar` para no volver a encolar lo mismo si falla.
+        if _mandar(fila["chat_id"], fila["texto"], teclado) is not None:
+            db.borrar_saliente(fila["id"])
+            salieron += 1
+        else:
+            intentos = db.sumar_intento_saliente(fila["id"])
+            log.warning("Sigo sin poder mandar el mensaje %s (%d intentos)",
+                        fila["id"], intentos)
+            break   # si falla uno, seguro fallan los demás: no insistimos ahora
+    return salieron
+
+
+def _mandar(chat_id: int, texto: str, teclado: list | None = None,
+            responder_a: int | None = None) -> dict | None:
+    payload = {"chat_id": chat_id, "text": texto, "parse_mode": "HTML",
+               "disable_web_page_preview": True}
     if teclado:
         payload["reply_markup"] = {"inline_keyboard": teclado}
     if responder_a:
         payload["reply_to_message_id"] = responder_a
         payload["allow_sending_without_reply"] = True
     return llamar("sendMessage", **payload)
+
+
+def enviar(chat_id: int, texto: str, teclado: list | None = None,
+           responder_a: int | None = None) -> dict | None:
+    resultado = _mandar(chat_id, texto, teclado, responder_a)
+    if resultado is None:
+        # No se pudo mandar (proxy caído, 429 largo). Antes se perdía en silencio y el
+        # usuario veía que la acción se hizo pero nunca le contestamos. Ahora queda en
+        # cola y sale en la próxima oportunidad.
+        from . import db
+
+        db.encolar_saliente(chat_id, texto, teclado)
+        log.error("No pude mandar el mensaje: lo dejo en la cola de salida")
+    return resultado
 
 
 def editar(chat_id: int, message_id: int, texto: str, teclado: list | None = None) -> dict | None:
