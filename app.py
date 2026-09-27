@@ -19,7 +19,11 @@ db.init_db()
 
 @app.get("/")
 def salud():
-    return jsonify(ok=True, bot="notita")
+    """Para saber de una si lo que está corriendo es lo último que pusheaste.
+
+        curl https://TU_USUARIO.pythonanywhere.com/
+    """
+    return jsonify(ok=True, bot="notita", version=config.version())
 
 
 @app.post("/telegram")

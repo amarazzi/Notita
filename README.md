@@ -365,6 +365,21 @@ manda nada.
 > Con cualquiera de las dos opciones, acordate de entrar cada 3 meses al botón
 > *Run until 3 months from today* de la web app, o PythonAnywhere la desactiva.
 
+### ¿Está corriendo lo último?
+
+La web app dice qué commit tiene cargado, así que se puede chequear desde cualquier lado:
+
+```bash
+curl https://USUARIO.pythonanywhere.com/
+# {"bot":"notita","ok":true,"version":"9ed9fac"}
+```
+
+Si no coincide con `git rev-parse --short HEAD`, falta actualizar:
+
+```bash
+cd ~/Notita && git pull && touch /var/www/USUARIO_pythonanywhere_com_wsgi.py
+```
+
 ### 8. Variables de entorno
 
 En PythonAnywhere no hay panel de variables, así que se leen del archivo `.env` en la
@@ -470,7 +485,7 @@ También desde el grupo: `/recordatorios`.
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt pytest
 cp .env.example .env
-pytest                 # 516 tests, sin red ni API keys
+pytest                 # 519 tests, sin red ni API keys
 python app.py          # http://localhost:5000
 ```
 

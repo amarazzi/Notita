@@ -39,6 +39,36 @@ TZ_NOMBRE, TZ = zona(os.getenv("NOTITA_TZ", TZ_POR_DEFECTO))
 HORA_RUTINA = os.getenv("NOTITA_HORA", "20:00")
 
 
+def version() -> str:
+    """El commit que está corriendo, leído del .git. «desconocida» si no hay repo.
+
+    Sirve para contestar «¿está actualizado?» sin entrar al servidor: la web app lo
+    muestra en `/`.
+    """
+    git = BASE_DIR / ".git"
+    try:
+        cabeza = (git / "HEAD").read_text().strip()
+        if cabeza.startswith("ref: "):
+            ref = git / cabeza[5:]
+            sha = ref.read_text().strip() if ref.exists() else _de_packed_refs(git, cabeza[5:])
+        else:
+            sha = cabeza
+        return sha[:7] if sha else "desconocida"
+    except OSError:
+        return "desconocida"
+
+
+def _de_packed_refs(git, ref: str) -> str:
+    """Después de un clone las refs pueden estar empaquetadas en un solo archivo."""
+    try:
+        for linea in (git / "packed-refs").read_text().splitlines():
+            if linea.endswith(" " + ref):
+                return linea.split(" ", 1)[0]
+    except OSError:
+        pass
+    return ""
+
+
 def hora_rutina_en_utc(hora: str | None = None) -> str:
     """La hora de la rutina pasada a UTC, que es como se programan los crons."""
     from datetime import datetime, timezone

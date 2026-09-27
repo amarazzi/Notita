@@ -170,3 +170,29 @@ def test_el_readme_no_promete_mas_de_lo_que_hay():
     readme = (RAIZ / "README.md").read_text()
     assert "NOTITA_TZ" in readme, "la zona horaria ahora se configura: hay que decirlo"
     assert "NOTITA_HORA" in readme
+
+
+# --------------------------------------------------------------------------
+# Saber qué versión está corriendo, sin entrar al servidor
+# --------------------------------------------------------------------------
+
+def test_la_version_es_el_commit():
+    import subprocess
+
+    esperado = subprocess.run(["git", "rev-parse", "--short=7", "HEAD"], cwd=RAIZ,
+                              capture_output=True, text=True).stdout.strip()
+    assert config.version() == esperado
+
+
+def test_sin_repo_no_explota(tmp_path, monkeypatch):
+    monkeypatch.setattr(config, "BASE_DIR", tmp_path)
+    assert config.version() == "desconocida"
+
+
+def test_la_raiz_de_la_web_app_dice_la_version():
+    import app as webapp
+
+    with webapp.app.test_client() as cliente:
+        datos = cliente.get("/").get_json()
+    assert datos["bot"] == "notita"
+    assert datos["version"] == config.version()
