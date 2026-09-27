@@ -59,11 +59,12 @@ def test_las_vencidas_cansadas_van_juntas(enviados):
 
     assert res["agrupadas"] == 3
     assert res["recordatorios"] == 0        # ningún mensaje suelto
-    salida = textos(enviados)
-    assert len(salida) == 1, "tres tareas, un solo mensaje"
-    assert "Hace varios días que pregunto por estas <b>3</b>" in salida[0]
+    # Los domingos va también el resumen, así que se busca el agrupado.
+    agrupado = [s for s in textos(enviados) if "pregunto por estas" in s]
+    assert len(agrupado) == 1, "tres tareas, un solo mensaje"
+    assert "Hace varios días que pregunto por estas <b>3</b>" in agrupado[0]
     for t in ("Ordenar el placard", "Colgar el cuadro", "Tirar las cajas"):
-        assert t in salida[0]
+        assert t in agrupado[0]
 
 
 def test_las_nuevas_siguen_yendo_de_a_una(enviados):

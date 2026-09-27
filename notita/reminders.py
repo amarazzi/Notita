@@ -53,10 +53,14 @@ def correr_rutina_diaria(ref: date | None = None, forzar: bool = False,
 
     momento = momento or _momento_de(ref)
     ref = momento.date()
-    # En la pasada principal (o forzando) sale todo; en una pasada temprana, sólo lo
-    # que ya tiene su hora cumplida.
-    hora_generica = "00:00" if forzar else config.HORA_RUTINA
-    pasada_principal = forzar or momento.strftime("%H:%M") >= hora_generica
+    # Si el cron corre una sola vez por día, ESTA corrida es la del día: sale todo lo
+    # que vence hoy, sin fijarse en el reloj. Antes se comparaba la hora con las 20:00
+    # y una corrida a las 19:59 (o un cron con otro horario) no mandaba nada.
+    # Con un cron frecuente sí hay que distinguir: lo que no tiene hora espera la
+    # pasada principal para no avisar a las 7 de la mañana.
+    unica_del_dia = config.CRON_MINUTOS == 0
+    pasada_principal = forzar or unica_del_dia or momento.strftime("%H:%M") >= config.HORA_RUTINA
+    hora_generica = "00:00" if pasada_principal else config.HORA_RUTINA
 
     resultado = {"fecha": ref.isoformat(), "hora": momento.strftime("%H:%M"),
                  "resumen": False, "recordatorios": 0, "recados": 0, "agrupadas": 0,

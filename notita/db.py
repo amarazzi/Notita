@@ -9,8 +9,11 @@ from datetime import date
 from . import config
 from .dates import Recurrencia, ahora, de_iso, iso
 
-# Después de esto, una pregunta sin contestar se da por perdida.
+# Después de esto, una pregunta sin contestar se da por perdida. Una aclaración vence
+# rápido: si contestás cuatro horas después, no estás aclarando nada, estás escribiendo
+# un mensaje nuevo (y mezclarlos hace que el bot reprocese el anterior).
 PENDING_HORAS = 6
+PENDING_MINUTOS_ACLARACION = 10
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS tasks (
@@ -433,7 +436,9 @@ def get_pending(chat_id: int) -> dict | None:
         nacio = datetime.fromisoformat(row["created_at"])
     except (TypeError, ValueError):
         nacio = None
-    if nacio and ahora() - nacio > timedelta(hours=PENDING_HORAS):
+    vida = (timedelta(minutes=PENDING_MINUTOS_ACLARACION) if row["kind"] == "aclaracion"
+            else timedelta(hours=PENDING_HORAS))
+    if nacio and ahora() - nacio > vida:
         clear_pending(chat_id)
         return None
     return {

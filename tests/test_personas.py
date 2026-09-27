@@ -101,7 +101,9 @@ def test_el_tercero_puede_ser_responsable(casa_de_tres):
 def test_ambos_menciona_a_los_tres(casa_de_tres, enviados):
     db.crear_tarea(CHAT, "ordenar el living", responsable="ambos", due=hoy())
     reminders.correr_rutina_diaria(ref=hoy())
-    texto = [e["text"] for e in enviados if e["metodo"] == "sendMessage"][0]
+    # Los domingos la rutina manda primero el resumen: se busca el recordatorio.
+    texto = [e["text"] for e in enviados if e["metodo"] == "sendMessage"
+             and "living" in e["text"]][0]
     for uid in (111, 222, 333):
         assert f"tg://user?id={uid}" in texto
     assert "Es de todos:" in texto

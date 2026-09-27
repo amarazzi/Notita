@@ -106,7 +106,13 @@ def _mensaje(msg: dict) -> None:
         return
     if pendiente and pendiente["kind"] == "aclaracion":
         db.clear_pending(chat_id)
-        previo = pendiente["data"].get("texto")
+        # Sólo se toma como aclaración si el mensaje NO se entiende solo. Si es un
+        # pedido completo («ya compramos todo», «hay que limpiar la heladera el
+        # martes»), es un mensaje nuevo: mezclarlo con el anterior hacía que Notita
+        # reprocesara lo viejo y hasta que le cambiara la intención al nuevo.
+        previo = None if heuristica.parece_pedido_completo(texto) else pendiente["data"].get("texto")
+        if previo is None:
+            log.info("Había una aclaración pendiente, pero este mensaje se entiende solo")
         _interpretar_y_guardar(chat_id, texto, autor, contexto_previo=previo)
         return
 

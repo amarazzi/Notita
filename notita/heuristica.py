@@ -167,6 +167,28 @@ def _limpiar_referencia(resto: str) -> str:
     return resto
 
 
+def parece_pedido_completo(texto: str) -> bool:
+    """Si el mensaje se entiende solo, sin depender de lo anterior.
+
+    Sirve para no tratar un mensaje nuevo como si fuera la respuesta a una pregunta
+    que quedó abierta: «ya compramos todo» no aclara nada, es otra cosa.
+    """
+    t = aplanar(texto).strip(" .!¡?¿,")
+    if not t:
+        return False
+    pedido = _intencion(texto)
+    if pedido and pedido[0] != "anotar":
+        return True             # es una acción con nombre propio
+    if RECADO.match(texto.strip()):
+        return True
+    # Un verbo de tarea («hay que…», «falta…», «comprar…») ya es un pedido entero.
+    if any(re.search(rf"\b{a}\b", t) for a in ACCIONES) or _es_compra(t):
+        return len(t.split()) >= 2
+    # Y si trae fecha propia y algo más que la fecha, tampoco es una aclaración.
+    spec, resto = extraer_fecha(t)
+    return spec is not None and len(_limpiar(resto).split()) >= 2
+
+
 def objetivos(referencia: str) -> list[str]:
     """«la yerba y el papel higiénico del super» -> ['yerba', 'papel higiénico'].
 

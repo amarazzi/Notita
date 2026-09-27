@@ -442,7 +442,15 @@ def interpretar_mensaje(texto: str, autor: str, ref: date | None = None,
     ref = ref or hoy()
     partes = [_contexto_fecha(ref), f"Lo escribió: {config.NOMBRES.get(autor, 'alguien')}."]
     if contexto_previo:
-        partes.append(f"Mensaje anterior de la misma persona: «{contexto_previo}»")
+        # Redactado así a propósito: cuando esto decía sólo "mensaje anterior: «X»",
+        # el modelo anotaba TAMBIÉN lo del mensaje anterior, y hasta le cambiaba la
+        # intención al nuevo. El anterior es contexto, no contenido.
+        partes.append(
+            f"CONTEXTO: hace un rato escribieron «{contexto_previo}» y no quedó claro, "
+            f"así que preguntaste qué querían decir. El mensaje de abajo es la respuesta "
+            f"a esa pregunta.\n"
+            f"Usá el contexto SÓLO para entender de qué hablan. NO devuelvas items por "
+            f"lo del mensaje anterior: devolvé UN SOLO item, el de esa cosa ya aclarada.")
     partes.append(f"Mensaje: «{texto}»")
     return _call("\n".join(partes), schema_mensaje(), _sistema())
 

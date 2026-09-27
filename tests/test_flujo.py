@@ -247,7 +247,8 @@ def test_la_tarea_se_escribe_igual_en_todos_lados(enviados):
     """En el recordatorio decía «¿llamar al plomero?» y en la lista «Llamar al plomero»."""
     tid = db.crear_tarea(CHAT, "llamar al plomero", categoria="arreglos", due=hoy())
     reminders.correr_rutina_diaria(ref=hoy())
-    recordatorio = [e["text"] for e in enviados if e["metodo"] == "sendMessage"][0]
+    recordatorio = [e["text"] for e in enviados if e["metodo"] == "sendMessage"
+                    and "plomero" in e["text"]][0]
 
     assert "Llamar al plomero" in recordatorio
     assert "Llamar al plomero" in views.render_todo(CHAT)

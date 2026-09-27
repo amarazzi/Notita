@@ -295,8 +295,9 @@ def test_en_dos_horas_guarda_la_hora(enviados, monkeypatch):
     assert tarea["due_hora"] is not None, "«en 2 horas» tiene que guardar la hora"
 
 
-def test_una_tarea_con_hora_espera_su_hora(enviados):
+def test_una_tarea_con_hora_espera_su_hora(enviados, monkeypatch):
     """Si la rutina corre temprano, la de las 18:00 no se recuerda todavía."""
+    monkeypatch.setattr(config, "CRON_MINUTOS", 15)   # cron frecuente
     db.crear_tarea(CHAT, "llamar al médico", due=SABADO, hora="18:00")
     manana = datetime(2026, 9, 26, 9, 0, tzinfo=config.TZ)
 
@@ -307,7 +308,8 @@ def test_una_tarea_con_hora_espera_su_hora(enviados):
     assert "18:00" in textos(enviados)[-1]
 
 
-def test_una_tarea_sin_hora_espera_la_pasada_principal(enviados):
+def test_una_tarea_sin_hora_espera_la_pasada_principal(enviados, monkeypatch):
+    monkeypatch.setattr(config, "CRON_MINUTOS", 15)
     db.crear_tarea(CHAT, "sacar la basura", due=SABADO)
     temprano = datetime(2026, 9, 26, 9, 0, tzinfo=config.TZ)
     assert reminders.correr_rutina_diaria(momento=temprano)["recordatorios"] == 0
@@ -316,8 +318,9 @@ def test_una_tarea_sin_hora_espera_la_pasada_principal(enviados):
     assert reminders.correr_rutina_diaria(momento=noche)["recordatorios"] == 1
 
 
-def test_una_tarea_de_las_22_igual_se_recuerda_en_la_pasada_de_las_20(enviados):
+def test_una_tarea_de_las_22_igual_se_recuerda_en_la_pasada_de_las_20(enviados, monkeypatch):
     """Con una sola corrida diaria, la pasada principal es la red de seguridad."""
+    monkeypatch.setattr(config, "CRON_MINUTOS", 15)
     db.crear_tarea(CHAT, "cerrar la ventana", due=SABADO, hora="22:00")
     noche = datetime(2026, 9, 26, 20, 0, tzinfo=config.TZ)
 
@@ -325,7 +328,8 @@ def test_una_tarea_de_las_22_igual_se_recuerda_en_la_pasada_de_las_20(enviados):
     assert "22:00" in textos(enviados)[-1]
 
 
-def test_no_se_recuerda_dos_veces_el_mismo_dia(enviados):
+def test_no_se_recuerda_dos_veces_el_mismo_dia(enviados, monkeypatch):
+    monkeypatch.setattr(config, "CRON_MINUTOS", 15)
     db.crear_tarea(CHAT, "llamar al médico", due=SABADO, hora="18:00")
     tarde = datetime(2026, 9, 26, 18, 5, tzinfo=config.TZ)
     noche = datetime(2026, 9, 26, 20, 0, tzinfo=config.TZ)
@@ -367,7 +371,8 @@ def test_el_recado_con_hora_se_entrega_a_esa_hora(enviados):
     assert "horno" in textos(enviados)[-1]
 
 
-def test_el_recado_sin_hora_espera_la_pasada_principal(enviados):
+def test_el_recado_sin_hora_espera_la_pasada_principal(enviados, monkeypatch):
+    monkeypatch.setattr(config, "CRON_MINUTOS", 15)
     db.crear_tarea(CHAT, "comprá pan", tipo="recado", responsable="axel",
                    due=SABADO, created_by="barbu")
     temprano = datetime(2026, 9, 26, 10, 0, tzinfo=config.TZ)
@@ -707,16 +712,16 @@ def test_al_entregarlo_tampoco_dice_que_alguien_lo_manda(enviados):
                    due=hoy(), created_by="axel")
     reminders.correr_rutina_diaria(ref=hoy())
 
-    salida = textos(enviados)[-1]
-    assert "te recuerdo" in salida.lower()
-    assert "te manda a decir" not in salida
+    # Sin `[-1]`: los domingos después de los recados va el resumen de la semana.
+    entrega = [t for t in textos(enviados) if "recuerdo" in t.lower()][0]
+    assert "te manda a decir" not in entrega
 
 
 def test_un_recado_a_otro_sigue_igual(enviados):
     db.crear_tarea(CHAT, "comprá pan", tipo="recado", responsable="axel",
                    due=hoy(), created_by="barbu")
     reminders.correr_rutina_diaria(ref=hoy())
-    assert "te manda a decir" in textos(enviados)[-1]
+    assert any("te manda a decir" in t for t in textos(enviados))
 
 
 # ==========================================================================
