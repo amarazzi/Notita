@@ -518,3 +518,20 @@ def test_elegir_y_abrir_el_menu_reemplaza_la_lista(enviados):
 
     # El menú se edita en el lugar en vez de dejar dos mensajes colgados.
     assert [e["metodo"] for e in enviados] == ["answerCallbackQuery", "editMessageText"]
+
+
+def test_el_deshacer_va_en_su_propia_fila(enviados):
+    """Compartiendo fila, Telegram lo cortaba al medio: «↩️ Desha…cómoda…».
+
+    Y lo que importa de ese botón es justamente saber QUÉ va a deshacer.
+    """
+    tid = db.crear_tarea(CHAT, "comprar cómoda para la habitación", due=hoy())
+    db.crear_tarea(CHAT, "otra cosa", due=hoy())
+    handlers.handle_update(click(cb.armar("ok", tid)))
+
+    _, filas = tablero.render(CHAT)
+    con_deshacer = [f for f in filas if any("Deshacer" in b["text"] for b in f)]
+
+    assert len(con_deshacer) == 1
+    assert len(con_deshacer[0]) == 1, "solo en su fila"
+    assert con_deshacer[0][0]["text"] == "↩️ Deshacer: Comprar cómoda para la…"

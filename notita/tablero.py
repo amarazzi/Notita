@@ -78,15 +78,14 @@ def render(chat_id: int, ref: date | None = None) -> tuple[str, list]:
         lineas.append(f"\n🛒 <b>SÚPER</b> · {len(compras)} ›")
         filas.append([{"text": f"🛒 Súper · {len(compras)}", "callback_data": cb.armar("sup")}])
 
-    ultima = []
+    # Cada uno en su fila: compartiéndola, Telegram cortaba el deshacer al medio
+    # («↩️ Desha…cómoda…») justo cuando lo que importa es saber QUÉ se deshace.
     if casa:
-        ultima.append({"text": "⋯ Cambiar algo", "callback_data": cb.armar("elegir")})
+        filas.append([{"text": "⋯ Cambiar algo", "callback_data": cb.armar("elegir")}])
     deshacer = db.ultimo_deshacer(chat_id)
     if deshacer:
-        ultima.append({"text": f"↩️ Deshacer{_que_deshace(deshacer)}",
-                       "callback_data": cb.armar("u", deshacer["id"])})
-    if ultima:
-        filas.append(ultima)
+        filas.append([{"text": f"↩️ Deshacer{_que_deshace(deshacer)}",
+                       "callback_data": cb.armar("u", deshacer["id"])}])
 
     if len(lineas) == 1:
         lineas.append("\nNo hay nada pendiente. Qué lujo ✨")
@@ -152,7 +151,7 @@ def _que_deshace(deshacer: dict) -> str:
     if len(deshacer["item_ids"]) != 1:
         return f" ({len(deshacer['item_ids'])})"
     row = db.obtener(deshacer["item_ids"][0])
-    return f": {views.recortar(views.titulo(row), 20)}" if row is not None else ""
+    return f": {views.recortar(views.titulo(row), 30)}" if row is not None else ""
 
 
 def _cuantos_botones(secciones: dict, expandidas: set[str]) -> int:
