@@ -582,7 +582,7 @@ def _pasos(sitio) -> None:
     print(f"  Pestaña \033[1mTasks\033[0m → Daily task → hora "
           f"\033[1m{config.hora_rutina_en_utc()}\033[0m (es UTC, equivale a las "
           f"{config.HORA_RUTINA} acá)")
-    print(f"  Comando: \033[1m{piton} {config.BASE_DIR}/run_reminders.py\033[0m")
+    print(f"  Comando: \033[1m{piton} {config.BASE_DIR}/run_parte.py\033[0m")
     print(f"\n  Para chequear que todo esté en orden: {piton} doctor.py")
     print("  Y probalo ya: escribí en el grupo «hay que limpiar la heladera el lunes» 🤍\n")
 

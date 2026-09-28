@@ -77,6 +77,12 @@ def version() -> str:
     return VERSION
 
 
+# Si el parte se manda igual cuando no hay nada para contar.
+PARTE_VACIO = os.getenv("NOTITA_PARTE_VACIO", "1").strip() not in ("0", "no", "false")
+
+# De dónde sale el botón «Agregar al calendario»: google (link) o ics (archivo).
+CALENDARIO = os.getenv("NOTITA_CALENDARIO", "google").strip().lower()
+
 # Cada cuántos minutos corre la rutina. 0 = una sola vez por día (la tarea diaria de
 # PythonAnywhere). Con un cron externo se puede poner 5, 15, 30... Notita lo usa para
 # no prometer una hora que no va a poder cumplir.

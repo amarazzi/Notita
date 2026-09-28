@@ -1,5 +1,4 @@
 """Lo que antes estaba cableado al caso de esta casa y ahora se configura."""
-from datetime import timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
@@ -52,16 +51,6 @@ def test_los_textos_dicen_la_hora_configurada(monkeypatch):
     monkeypatch.setattr(config, "HORA_RUTINA", "09:30")
     assert "09:30" in views.ayuda()
     assert "20:00" not in views.ayuda()
-
-
-def test_la_confirmacion_del_recado_usa_la_hora_configurada(monkeypatch, enviados):
-    from notita import db
-    from notita.dates import hoy
-
-    monkeypatch.setattr(config, "HORA_RUTINA", "09:30")
-    tid = db.crear_tarea(CHAT, "comprá pan", tipo="recado", responsable="axel",
-                         due=hoy() + timedelta(days=1), created_by="barbu")
-    assert "09:30" in views.confirmacion(db.obtener(tid), hoy())
 
 
 # --------------------------------------------------------------------------

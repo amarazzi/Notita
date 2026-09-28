@@ -85,7 +85,8 @@ INTENCIONES = (
                   r"|que (falta|hay que) comprar"),
     ("ver_algun_dia", r"(algun dia|sin fecha)\b.{0,15}(que|cuales|mostrame|tengo|hay)"
                       r"|(mostrame|pasame|dame|ver).{0,20}(algun dia|sin fecha)"),
-    ("ver_pendientes", r"(que|cuales|cuanto).{0,25}(hay que hacer|tenemos (que hacer|pendiente)"
+    ("ver_pendientes", r"^que hay (para|de)? ?(hoy|manana|hacer)\b"
+                       r"|(que|cuales|cuanto).{0,25}(hay que hacer|tenemos (que hacer|pendiente)"
                        r"|queda|falta hacer|hay pendiente|esta pendiente|pendientes)"
                        r"|(mostrame|pasame|dame|ver|leeme|listame).{0,20}"
                        r"(tareas|pendientes|lista|todo|que hacer)"
@@ -304,8 +305,24 @@ def _sacar_nombre(texto: str, nombre: str) -> str:
     return re.sub(patron, "", texto, count=1, flags=re.IGNORECASE)
 
 
-def _es_compra(plano: str) -> bool:
+# Cosas que se compran pero no en el súper: si aparecen, es una tarea.
+DURABLES = (
+    "comoda|mesa|silla|sillon|cama|colchon|sommier|placard|mueble|estanteria|biblioteca"
+    "|heladera|lavarropas|secarropas|horno|microondas|anafe|cocina|ventilador|estufa"
+    "|aire|televisor|tv|monitor|escritorio|alfombra|cortina|lampara|velador"
+    "|taladro|tornillo|clavo|pintura|pincel|cinta|silicona|manguera|foco|lamparita"
+    "|maceta|planta|tierra|semilla|abono|regadera"
+)
+
+
+def _es_compra(plano: str, con_fecha: bool = False) -> bool:
+    if con_fecha:
+        # Algo con fecha es una tarea: al súper se va cuando se puede, sin agenda.
+        return False
     if any(re.search(rf"\b{a}\b", plano) for a in ACCIONES):
+        return False
+    # Con plural: «focos», «tornillos», «macetas».
+    if re.search(rf"\b(?:{DURABLES})(?:es|s)?\b", plano):
         return False
     return any(s in plano for s in COMPRAS)
 
@@ -355,7 +372,7 @@ def _item(fragmento: str) -> dict | None:
         return None
 
     plano = aplanar(texto)
-    if _es_compra(plano_completo):
+    if _es_compra(plano_completo, con_fecha=spec is not None):
         tipo, categoria, spec = "compras", "compras", DateSpec("algun_dia")
     else:
         tipo, categoria = "casa", _categoria(plano)
@@ -394,7 +411,7 @@ def _contagiar_compras(items: list[dict]) -> None:
         return
     for item in items[1:]:
         sin_pistas = (item["categoria"] == "otros"
-                      and item["fecha_kind"] == "desconocida"
+                      and item["fecha_kind"] in ("desconocida", "algun_dia")
                       and item["recur_kind"] == "ninguna"
                       and not any(re.search(rf"\b{a}\b", aplanar(item["texto"]))
                                   for a in ACCIONES))
@@ -417,27 +434,85 @@ def _fragmentar(texto: str) -> list[str]:
 
 
 def interpretar(texto: str, autor: str = "ninguno") -> dict:
-    """Misma forma que `llm.interpretar_mensaje`, pero sin salir a internet."""
+    """Misma forma que `llm.interpretar_mensaje`, pero sin salir a internet.
+
+    En v2 el modo local también PROPONE las modificaciones en vez de ejecutarlas, así
+    que un error del parser local no rompe nada: alguien tiene que tocar el botón.
+    """
+    return _a_v2(_interpretar_v1(texto, autor))
+
+
+def _interpretar_v1(texto: str, autor: str) -> dict:
     charla = _charla(texto)
     if charla is not None:
-        return {"intencion": "charla", "es_tarea": False, "comentario": charla,
-                "items": [], "local": True}
+        return {"intencion": "charla", "comentario": charla, "items": []}
 
     pedido = _intencion(texto)
     if pedido:
         intencion, referencia = pedido
         return {"intencion": intencion, "referencia": referencia,
-                "objetivos": objetivos(referencia), "categoria_filtro": "",
-                "es_tarea": False, "comentario": "", "items": [], "local": True}
+                "objetivos": objetivos(referencia), "comentario": "", "items": []}
 
     recado = _recado(texto, autor)
     if recado:
-        return {"intencion": "anotar", "es_tarea": True, "comentario": "",
-                "items": [recado], "local": True}
+        return {"intencion": "recado_local", "comentario": "", "items": [recado]}
 
     items = [i for i in (_item(f) for f in _fragmentar(texto)) if i]
     _contagiar_compras(items)
     if not items:  # no pudimos sacar nada en limpio: lo guardamos tal cual
         items = [item_crudo(texto)]
-    return {"intencion": "anotar", "es_tarea": True, "comentario": "",
-            "items": items, "local": True}
+    return {"intencion": "anotar", "comentario": "", "items": items}
+
+
+# Cómo se traduce lo que entiende el parser local al vocabulario de v2.
+_INTENCIONES_V2 = {
+    "anotar": ("crear", None),
+    "charla": ("charla", None),
+    "completar": ("modificar", "completar"),
+    "borrar": ("modificar", "borrar"),
+    "vaciar_super": ("modificar", "vaciar_super"),
+    "borrar_todo": ("modificar", "borrar"),
+    "ver_pendientes": ("ver", None),
+    "ver_super": ("ver", None),
+    "ver_algun_dia": ("ver", None),
+    "ver_ayuda": ("ver", None),
+}
+
+
+def _a_v2(data: dict) -> dict:
+    """Traduce al formato de v2, que es el que esperan los handlers."""
+    vieja = data.get("intencion") or "charla"
+    if vieja == "recado_local":
+        item = (data.get("items") or [{}])[0]
+        return {"intencion": "recado", "items": [], "local": True, "comentario": "",
+                "recado_para": item.get("responsable", "ninguno"),
+                "recado_mensaje": item.get("texto", "")}
+
+    intencion, accion = _INTENCIONES_V2.get(vieja, ("charla", None))
+    salida = {
+        "intencion": intencion,
+        "comentario": data.get("comentario", ""),
+        "items": [_item_v2(i) for i in (data.get("items") or [])],
+        "local": True,
+    }
+    if intencion == "modificar":
+        salida["accion"] = accion
+        salida["referencias"] = data.get("objetivos") or []
+        if vieja == "borrar_todo":
+            salida["conjunto"] = "todo"
+        elif vieja == "vaciar_super":
+            salida["conjunto"] = "super"
+        else:
+            salida["conjunto"] = "ninguno"
+    if intencion == "ver":
+        salida["ver_que"] = ("super" if vieja == "ver_super"
+                             else "ayuda" if vieja == "ver_ayuda" else "tablero")
+    return salida
+
+
+def _item_v2(item: dict) -> dict:
+    """`texto` pasa a `titulo` y el tipo al vocabulario de v2."""
+    nuevo = dict(item)
+    nuevo["titulo"] = item.get("titulo") or item.get("texto") or ""
+    nuevo["tipo"] = "super" if item.get("tipo") == "compras" else "tarea"
+    return nuevo

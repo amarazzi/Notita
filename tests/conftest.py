@@ -35,6 +35,10 @@ def entorno(tmp_path, monkeypatch):
     originales = config.PERSONAS_CASA
     config.definir_personas(CASA)
     db.init_db()
+    # La bienvenida de v2 sale una sola vez; en los tests estorba. El test que la
+    # prueba usa el fixture `casa_nueva`.
+    db.ajuste("bienvenida_v2", "1")
+    db.guardar_tablero(CHAT, 1)   # como si el tablero ya estuviera publicado
 
     enviados = []
 
@@ -51,3 +55,11 @@ def entorno(tmp_path, monkeypatch):
 @pytest.fixture
 def enviados(entorno):
     return entorno
+
+
+@pytest.fixture
+def casa_nueva():
+    """Una casa recién instalada: sin bienvenida ni tablero."""
+    with db.conn() as c:
+        c.execute("DELETE FROM ajustes WHERE clave = 'bienvenida_v2'")
+        c.execute("DELETE FROM tablero")

@@ -2,12 +2,15 @@
 from __future__ import annotations
 
 import json
+import logging
 import sqlite3
 from contextlib import contextmanager
 from datetime import date
 
 from . import config
 from .dates import Recurrencia, ahora, de_iso, iso
+
+log = logging.getLogger("notita.db")
 
 # Después de esto, una pregunta sin contestar se da por perdida. Una aclaración vence
 # rápido: si contestás cuatro horas después, no estás aclarando nada, estás escribiendo
@@ -31,12 +34,11 @@ CREATE TABLE IF NOT EXISTS tasks (
     recur_monthday INTEGER,
     estado        TEXT    NOT NULL DEFAULT 'pendiente', -- pendiente | hecha | borrada
     postpone_count INTEGER NOT NULL DEFAULT 0,
-    recordada_veces INTEGER NOT NULL DEFAULT 0,          -- noches que se preguntó por ella
     created_by    TEXT    NOT NULL DEFAULT 'ninguno',
     created_at    TEXT    NOT NULL,
     completed_by  TEXT,
     completed_at  TEXT,
-    last_reminded_on TEXT
+    mensaje_origen_id INTEGER                            -- de qué mensaje salió (deshacer)
 );
 CREATE INDEX IF NOT EXISTS idx_tasks_estado ON tasks (estado, tipo, due_date);
 
@@ -53,17 +55,70 @@ CREATE TABLE IF NOT EXISTS salientes (
 
 -- Los update_id que ya procesamos, para no repetir si Telegram reenvía.
 CREATE TABLE IF NOT EXISTS updates_vistos (
-    update_id INTEGER PRIMARY KEY,
+    update_id TEXT PRIMARY KEY,   -- update_id o callback_query.id
     visto_en  TEXT NOT NULL
 );
 
--- Conversación pendiente por chat: qué está esperando Notita que le contesten.
+-- Lo que Notita está esperando que le contesten, SÓLO como respuesta a un
+-- force_reply (v1 se comía el mensaje siguiente cualquiera).
 CREATE TABLE IF NOT EXISTS pending (
     chat_id    INTEGER PRIMARY KEY,
-    kind       TEXT NOT NULL,   -- fecha | aclaracion
+    kind       TEXT NOT NULL,   -- renombrar | fecha_item
     task_id    INTEGER,
     data       TEXT,
     created_at TEXT NOT NULL
+);
+
+-- El tablero fijado: un solo mensaje por chat, que se edita en el lugar.
+CREATE TABLE IF NOT EXISTS tablero (
+    chat_id    INTEGER PRIMARY KEY,
+    message_id INTEGER,
+    editado_en TEXT,
+    sucio      INTEGER NOT NULL DEFAULT 0
+);
+
+-- Menús, secciones expandidas y propuestas: se borran solos.
+CREATE TABLE IF NOT EXISTS mensajes_temporales (
+    chat_id    INTEGER NOT NULL,
+    message_id INTEGER NOT NULL,
+    tipo       TEXT    NOT NULL,
+    expira_at  TEXT    NOT NULL,
+    PRIMARY KEY (chat_id, message_id)
+);
+
+-- Lo que un texto PROPUSO modificar. No se ejecuta hasta que alguien toca.
+CREATE TABLE IF NOT EXISTS propuestas (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    chat_id    INTEGER NOT NULL,
+    payload    TEXT    NOT NULL,
+    expira_at  TEXT    NOT NULL
+);
+
+-- Qué ítems creó un mensaje, para poder deshacerlos.
+CREATE TABLE IF NOT EXISTS deshacer (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    chat_id    INTEGER NOT NULL,
+    item_ids   TEXT    NOT NULL,
+    accion     TEXT    NOT NULL DEFAULT 'crear',
+    expira_at  TEXT    NOT NULL
+);
+
+-- El parte sale una sola vez por día, por más que el cron llame mil veces.
+CREATE TABLE IF NOT EXISTS partes_enviados (
+    fecha      TEXT PRIMARY KEY,
+    enviado_en TEXT NOT NULL
+);
+
+-- Notita en pausa: hasta cuándo no manda el parte.
+CREATE TABLE IF NOT EXISTS pausa (
+    chat_id INTEGER PRIMARY KEY,
+    hasta   TEXT NOT NULL
+);
+
+-- Banderitas sueltas (si ya se mandó la bienvenida de v2, etc).
+CREATE TABLE IF NOT EXISTS ajustes (
+    clave TEXT PRIMARY KEY,
+    valor TEXT
 );
 """
 
@@ -83,13 +138,21 @@ def conn():
 # las agrega a una base que ya existe, así que hay que pedirlas explícitamente.
 COLUMNAS_AGREGADAS = {
     "tasks": {
-        "recordada_veces": "INTEGER NOT NULL DEFAULT 0",
         "due_hora": "TEXT",
+        "mensaje_origen_id": "INTEGER",
     },
 }
 
+# Columnas de v1 que ya no se usan: eran del auto-posponer y del recordatorio por
+# tarea, que en v2 no existen. Se borran para que no quede lógica muerta rondando.
+COLUMNAS_MUERTAS = {"tasks": ("recordada_veces", "last_reminded_on")}
+
+
+VERSION_ESQUEMA = 2
+
 
 def init_db() -> None:
+    _respaldar_antes_de_migrar()
     with conn() as c:
         c.executescript(SCHEMA)
         for tabla, columnas in COLUMNAS_AGREGADAS.items():
@@ -97,6 +160,78 @@ def init_db() -> None:
             for nombre, tipo in columnas.items():
                 if nombre not in existentes:
                     c.execute(f"ALTER TABLE {tabla} ADD COLUMN {nombre} {tipo}")
+        _migrar_a_v2(c)
+
+
+def _respaldar_antes_de_migrar() -> None:
+    """Copia la base antes de la primera migración a v2. Una sola vez."""
+    import shutil
+    from pathlib import Path
+
+    base = Path(config.DB_PATH)
+    if not base.exists() or str(config.DB_PATH) == ":memory:":
+        return
+    respaldo = base.with_name(base.name + ".v1.bak")
+    if respaldo.exists():
+        return
+    try:
+        with conn() as c:
+            fila = c.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name='tablero'"
+            ).fetchone()
+        if fila:            # ya está en v2: no hay nada que respaldar
+            return
+        shutil.copy2(base, respaldo)
+        log.info("Respaldo de la base de v1 en %s", respaldo)
+    except OSError as e:
+        log.error("No pude respaldar la base antes de migrar: %s", e)
+
+
+def _migrar_a_v2(c) -> None:
+    """Lo que v2 necesita de una base de v1.
+
+    - Los recados diferidos no existen más: se descartan (queda registrado cuántos
+      eran, para poder decirlo en el mensaje de bienvenida).
+    - Se borran las columnas del auto-posponer y del recordatorio por tarea.
+    """
+    ya = c.execute("SELECT valor FROM ajustes WHERE clave = 'esquema'").fetchone()
+    if ya and ya["valor"] == str(VERSION_ESQUEMA):
+        return
+
+    recados = c.execute(
+        "SELECT COUNT(*) n FROM tasks WHERE tipo = 'recado' AND estado = 'pendiente'"
+    ).fetchone()["n"]
+    if recados:
+        c.execute("UPDATE tasks SET estado = 'borrada' "
+                  "WHERE tipo = 'recado' AND estado = 'pendiente'")
+        c.execute("INSERT OR REPLACE INTO ajustes (clave, valor) VALUES (?,?)",
+                  ("recados_descartados", str(recados)))
+        log.info("v2: descarté %d recado(s) diferido(s) pendiente(s)", recados)
+
+    existentes = {f["name"] for f in c.execute("PRAGMA table_info(tasks)")}
+    for columna in COLUMNAS_MUERTAS["tasks"]:
+        if columna in existentes:
+            try:
+                c.execute(f"ALTER TABLE tasks DROP COLUMN {columna}")
+            except sqlite3.OperationalError:
+                # SQLite viejo no sabe borrar columnas. Quedan ahí sin que nadie las
+                # lea, que es inofensivo; lo que importa es que no haya código que use.
+                log.info("No pude borrar la columna %s (SQLite viejo): la dejo sin uso",
+                         columna)
+
+    c.execute("INSERT OR REPLACE INTO ajustes (clave, valor) VALUES (?,?)",
+              ("esquema", str(VERSION_ESQUEMA)))
+
+
+def ajuste(clave: str, valor: str | None = None) -> str | None:
+    """Lee o escribe una banderita. Con `valor`, escribe y devuelve lo nuevo."""
+    with conn() as c:
+        if valor is not None:
+            c.execute("INSERT OR REPLACE INTO ajustes (clave, valor) VALUES (?,?)",
+                      (clave, valor))
+            return valor
+        fila = c.execute("SELECT valor FROM ajustes WHERE clave = ?", (clave,)).fetchone()
+        return fila["valor"] if fila else None
 
 
 # --------------------------------------------------------------------------
@@ -113,16 +248,18 @@ def crear_tarea(
     recurrencia: Recurrencia | None = None,
     created_by: str = "ninguno",
     hora: str | None = None,
+    mensaje_origen_id: int | None = None,
 ) -> int:
     with conn() as c:
         cur = c.execute(
             """INSERT INTO tasks (chat_id, texto, tipo, categoria, responsable, due_date,
-                                  due_hora,
+                                  due_hora, mensaje_origen_id,
                                   recur_kind, recur_interval, recur_weekday, recur_monthday,
                                   created_by, created_at)
-               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
             (
-                chat_id, " ".join(texto.split()), tipo, categoria, responsable, iso(due), hora,
+                chat_id, " ".join(texto.split()), tipo, categoria, responsable, iso(due),
+                hora, mensaje_origen_id,
                 recurrencia.kind if recurrencia else None,
                 recurrencia.interval if recurrencia else 1,
                 recurrencia.weekday if recurrencia else None,
@@ -390,22 +527,29 @@ def sumar_intento_saliente(saliente_id: int) -> int:
     return intentos
 
 
-def update_nuevo(update_id: int | None) -> bool:
-    """True si este update no se procesó antes. Lo registra de paso.
+MAX_UPDATES_VISTOS = 2000
 
-    El INSERT es la guarda: si dos workers procesan el mismo update a la vez, la
+
+def update_nuevo(clave: str | int | None) -> bool:
+    """True si esto no se procesó antes. Lo registra de paso.
+
+    La clave puede ser un update_id o un `cb:<callback_query.id>`: los callbacks
+    necesitan la misma garantía (dos toques del mismo botón no pueden tener efecto
+    doble). El INSERT es la guarda: si dos workers procesan lo mismo a la vez, la
     clave primaria hace que uno solo gane.
     """
-    if not update_id:
+    if not clave:
         return True          # sin id (tests, llamadas internas): siempre pasa
     with conn() as c:
         try:
             c.execute("INSERT INTO updates_vistos (update_id, visto_en) VALUES (?,?)",
-                      (int(update_id), ahora().isoformat(timespec="seconds")))
+                      (str(clave), ahora().isoformat(timespec="seconds")))
         except sqlite3.IntegrityError:
             return False
-        # No hace falta guardar la historia entera.
-        c.execute("DELETE FROM updates_vistos WHERE update_id < ?", (int(update_id) - 5000,))
+        # No hace falta guardar la historia entera: se recortan los más viejos.
+        c.execute("""DELETE FROM updates_vistos WHERE rowid NOT IN
+                     (SELECT rowid FROM updates_vistos ORDER BY visto_en DESC LIMIT ?)""",
+                  (MAX_UPDATES_VISTOS,))
     return True
 
 
@@ -452,3 +596,202 @@ def get_pending(chat_id: int) -> dict | None:
 def clear_pending(chat_id: int) -> None:
     with conn() as c:
         c.execute("DELETE FROM pending WHERE chat_id = ?", (chat_id,))
+
+
+# --------------------------------------------------------------------------
+# v2: tablero, mensajes temporales, propuestas, deshacer, parte y pausa
+# --------------------------------------------------------------------------
+
+def tablero_actual(chat_id: int) -> dict | None:
+    with conn() as c:
+        fila = c.execute("SELECT * FROM tablero WHERE chat_id = ?", (chat_id,)).fetchone()
+    return dict(fila) if fila else None
+
+
+def guardar_tablero(chat_id: int, message_id: int | None, sucio: bool = False) -> None:
+    with conn() as c:
+        c.execute("""INSERT INTO tablero (chat_id, message_id, editado_en, sucio)
+                     VALUES (?,?,?,?)
+                     ON CONFLICT(chat_id) DO UPDATE SET
+                       message_id = excluded.message_id,
+                       editado_en = excluded.editado_en,
+                       sucio = excluded.sucio""",
+                  (chat_id, message_id, ahora().isoformat(timespec="seconds"),
+                   1 if sucio else 0))
+
+
+def marcar_tablero_sucio(chat_id: int, sucio: bool = True) -> None:
+    with conn() as c:
+        c.execute("UPDATE tablero SET sucio = ? WHERE chat_id = ?",
+                  (1 if sucio else 0, chat_id))
+
+
+def anotar_temporal(chat_id: int, message_id: int, tipo: str, minutos: int) -> None:
+    from datetime import timedelta
+
+    with conn() as c:
+        c.execute("""INSERT INTO mensajes_temporales (chat_id, message_id, tipo, expira_at)
+                     VALUES (?,?,?,?)
+                     ON CONFLICT(chat_id, message_id) DO UPDATE SET
+                       tipo = excluded.tipo, expira_at = excluded.expira_at""",
+                  (chat_id, message_id, tipo,
+                   (ahora() + timedelta(minutes=minutos)).isoformat(timespec="seconds")))
+
+
+def renovar_temporal(chat_id: int, message_id: int, minutos: int) -> None:
+    """El mensaje del súper se usa mientras se compra: cada toque le da más vida."""
+    from datetime import timedelta
+
+    with conn() as c:
+        c.execute("UPDATE mensajes_temporales SET expira_at = ? "
+                  "WHERE chat_id = ? AND message_id = ?",
+                  ((ahora() + timedelta(minutes=minutos)).isoformat(timespec="seconds"),
+                   chat_id, message_id))
+
+
+def temporales_vencidos(limite: int = 20):
+    with conn() as c:
+        return c.execute("SELECT * FROM mensajes_temporales WHERE expira_at <= ? LIMIT ?",
+                         (ahora().isoformat(timespec="seconds"), limite)).fetchall()
+
+
+def olvidar_temporal(chat_id: int, message_id: int) -> None:
+    with conn() as c:
+        c.execute("DELETE FROM mensajes_temporales WHERE chat_id = ? AND message_id = ?",
+                  (chat_id, message_id))
+
+
+def guardar_propuesta(chat_id: int, payload: dict, minutos: int = 30) -> int:
+    from datetime import timedelta
+
+    with conn() as c:
+        cur = c.execute("INSERT INTO propuestas (chat_id, payload, expira_at) VALUES (?,?,?)",
+                        (chat_id, json.dumps(payload, ensure_ascii=False),
+                         (ahora() + timedelta(minutes=minutos)).isoformat(timespec="seconds")))
+        return int(cur.lastrowid)
+
+
+def leer_propuesta(propuesta_id: int) -> dict | None:
+    with conn() as c:
+        fila = c.execute("SELECT * FROM propuestas WHERE id = ?", (propuesta_id,)).fetchone()
+    if not fila or fila["expira_at"] <= ahora().isoformat(timespec="seconds"):
+        return None
+    return json.loads(fila["payload"])
+
+
+def borrar_propuesta(propuesta_id: int) -> None:
+    with conn() as c:
+        c.execute("DELETE FROM propuestas WHERE id = ?", (propuesta_id,))
+
+
+def limpiar_propuestas() -> int:
+    with conn() as c:
+        cur = c.execute("DELETE FROM propuestas WHERE expira_at <= ?",
+                        (ahora().isoformat(timespec="seconds"),))
+        return cur.rowcount or 0
+
+
+def guardar_deshacer(chat_id: int, item_ids: list[int], accion: str = "crear",
+                     minutos: int = 10) -> int:
+    from datetime import timedelta
+
+    with conn() as c:
+        cur = c.execute("INSERT INTO deshacer (chat_id, item_ids, accion, expira_at) "
+                        "VALUES (?,?,?,?)",
+                        (chat_id, json.dumps(item_ids), accion,
+                         (ahora() + timedelta(minutes=minutos)).isoformat(timespec="seconds")))
+        return int(cur.lastrowid)
+
+
+def leer_deshacer(deshacer_id: int) -> dict | None:
+    with conn() as c:
+        fila = c.execute("SELECT * FROM deshacer WHERE id = ?", (deshacer_id,)).fetchone()
+    if not fila or fila["expira_at"] <= ahora().isoformat(timespec="seconds"):
+        return None
+    return {"id": fila["id"], "chat_id": fila["chat_id"], "accion": fila["accion"],
+            "item_ids": json.loads(fila["item_ids"])}
+
+
+def borrar_deshacer(deshacer_id: int) -> None:
+    with conn() as c:
+        c.execute("DELETE FROM deshacer WHERE id = ?", (deshacer_id,))
+
+
+def vencer_deshacer_de(item_ids: list[int]) -> list[int]:
+    """Modificar un ítem vence el deshacer que lo incluía. Devuelve los que vencieron."""
+    if not item_ids:
+        return []
+    vencidos = []
+    with conn() as c:
+        for fila in c.execute("SELECT id, item_ids FROM deshacer").fetchall():
+            if set(json.loads(fila["item_ids"])) & set(item_ids):
+                vencidos.append(fila["id"])
+        for did in vencidos:
+            c.execute("DELETE FROM deshacer WHERE id = ?", (did,))
+        c.execute("DELETE FROM deshacer WHERE expira_at <= ?",
+                  (ahora().isoformat(timespec="seconds"),))
+    return vencidos
+
+
+def parte_ya_enviado(fecha: date) -> bool:
+    with conn() as c:
+        return c.execute("SELECT 1 FROM partes_enviados WHERE fecha = ?",
+                         (iso(fecha),)).fetchone() is not None
+
+
+def anotar_parte(fecha: date) -> bool:
+    """Marca el parte del día como enviado. False si ya estaba (otra corrida ganó)."""
+    with conn() as c:
+        try:
+            c.execute("INSERT INTO partes_enviados (fecha, enviado_en) VALUES (?,?)",
+                      (iso(fecha), ahora().isoformat(timespec="seconds")))
+        except sqlite3.IntegrityError:
+            return False
+    return True
+
+
+def ultimo_parte() -> date | None:
+    with conn() as c:
+        fila = c.execute("SELECT MAX(fecha) f FROM partes_enviados").fetchone()
+    return de_iso(fila["f"]) if fila and fila["f"] else None
+
+
+def pausar(chat_id: int, hasta: date) -> None:
+    with conn() as c:
+        c.execute("INSERT INTO pausa (chat_id, hasta) VALUES (?,?) "
+                  "ON CONFLICT(chat_id) DO UPDATE SET hasta = excluded.hasta",
+                  (chat_id, iso(hasta)))
+
+
+def pausada_hasta(chat_id: int) -> date | None:
+    with conn() as c:
+        fila = c.execute("SELECT hasta FROM pausa WHERE chat_id = ?", (chat_id,)).fetchone()
+    if not fila:
+        return None
+    hasta = de_iso(fila["hasta"])
+    if hasta and hasta < ahora().date():
+        with conn() as c:                     # se despausa sola
+            c.execute("DELETE FROM pausa WHERE chat_id = ?", (chat_id,))
+        return None
+    return hasta
+
+
+def pendiente_igual(chat_id: int, texto: str, tipo: str):
+    """Un pendiente con el MISMO texto (normalizado). Para no anotar dos veces.
+
+    A propósito exacto y no difuso: en v1 el fuzzy tachaba pantuflas cuando comprabas
+    pan.
+    """
+    from .dates import normalizar
+
+    objetivo = normalizar(texto)
+    if not objetivo:
+        return None
+    with conn() as c:
+        filas = c.execute(
+            "SELECT * FROM tasks WHERE chat_id = ? AND tipo = ? AND estado = 'pendiente'",
+            (chat_id, tipo)).fetchall()
+    for fila in filas:
+        if normalizar(fila["texto"]) == objetivo:
+            return fila
+    return None

@@ -1,7 +1,7 @@
 """Tests de quiénes viven en la casa: la config admite cualquier cantidad de personas."""
 import pytest
 
-from notita import config, db, llm, reminders, views
+from notita import config, db, llm, views
 from notita.config import Persona, parsear_personas, slugificar
 from notita.dates import hoy
 
@@ -95,18 +95,17 @@ def test_user_id_de_persona():
 def test_el_tercero_puede_ser_responsable(casa_de_tres):
     assert "jose_luis" in config.PERSONAS
     tid = db.crear_tarea(CHAT, "comprar el pan", responsable="jose_luis", due=hoy())
-    assert "José Luis" in views.linea_tarea(db.obtener(tid), hoy())
+    assert "José Luis" in views.linea(db.obtener(tid), hoy())
 
 
-def test_ambos_menciona_a_los_tres(casa_de_tres, enviados):
-    db.crear_tarea(CHAT, "ordenar el living", responsable="ambos", due=hoy())
-    reminders.correr_rutina_diaria(ref=hoy())
-    # Los domingos la rutina manda primero el resumen: se busca el recordatorio.
-    texto = [e["text"] for e in enviados if e["metodo"] == "sendMessage"
-             and "living" in e["text"]][0]
-    for uid in (111, 222, 333):
-        assert f"tg://user?id={uid}" in texto
-    assert "Es de todos:" in texto
+def test_ambos_dice_todos_con_tres_personas(casa_de_tres, enviados):
+    """Con más de dos, «los dos» no sirve: es «todos»."""
+    tid = db.crear_tarea(CHAT, "ordenar el living", responsable="ambos", due=hoy())
+
+    linea = views.linea(db.obtener(tid))
+
+    assert "todos" in linea
+    assert config.NOMBRES["ambos"] == "todos"
 
 
 def test_el_schema_del_llm_ofrece_a_todos(casa_de_tres):
@@ -140,7 +139,7 @@ def test_sin_personas_configuradas_no_revienta():
 def test_tarea_de_alguien_que_ya_no_esta_en_la_config():
     # Si se saca a alguien del .env, sus tareas viejas se siguen listando.
     tid = db.crear_tarea(CHAT, "algo viejo", responsable="ex_conviviente", due=hoy())
-    assert "ex_conviviente" in views.linea_tarea(db.obtener(tid), hoy())
+    assert "ex_conviviente" in views.linea(db.obtener(tid), hoy())
 
 
 def test_la_casa_de_los_tests_sigue_siendo_la_original():

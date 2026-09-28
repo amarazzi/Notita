@@ -1,0 +1,182 @@
+# Notita v2 — diseño
+
+> Este documento se escribió **antes** de codear. Si el código y esto no coinciden,
+> es un bug de alguno de los dos.
+
+## Por qué cambia el modelo
+
+En v1 el LLM interpretaba texto libre para todo: anotar, borrar, completar, mover,
+renombrar y acciones en bloque. Cada día aparecía una familia nueva de bugs, y casi
+todos tenían la misma forma: **el modelo entendió algo distinto y el bot lo ejecutó**.
+Peor: a veces confirmaba algo que no había guardado.
+
+La conclusión no es "mejorar el prompt". Es que el lenguaje natural es excelente para
+**capturar** y malo para **modificar**, porque modificar necesita certeza sobre *cuál*
+de las cosas que existen. Y la precisión horaria no es confiable con un cron gratuito.
+
+## Los cinco principios
+
+1. **Hablando se anota; tocando se gestiona.** El texto libre sólo crea.
+2. **El lenguaje propone y el toque confirma.** Un pedido de modificación se interpreta
+   y se ofrece con botones; no se ejecuta solo.
+3. **Nunca bloquear.** Notita siempre guarda con su mejor interpretación y ofrece
+   corregir. No hay estados "esperando respuesta" que traguen el próximo mensaje.
+4. **Todo lo que dice es verdad.** Las confirmaciones se arman leyendo de la base
+   *después* de escribir. Si la escritura falla, lo dice.
+5. **Un solo momento de reloj por día.** El parte diario. Nada más.
+
+El principio 3 mata una familia entera de bugs de v1 (el `pending` que se comía el
+mensaje siguiente). El principio 4 mata otra (confirmar lo que el LLM devolvió, no lo
+que se guardó: la cómoda que se anunció "al súper" y no estaba en ningún lado).
+
+## Máquina de estados por tipo de mensaje
+
+### Mensaje de texto en el grupo autorizado
+
+```
+texto
+ ├─ es respuesta a un force_reply nuestro (renombrar / escribir fecha)
+ │    └─ se aplica a ESE ítem, sin pasar por el LLM  → actualizar tablero
+ ├─ es comando (/tablero, /todo, /ayuda, /chatid, ...)
+ │    └─ responder
+ └─ interpretar (LLM, o heurística local si no hay Gemini)
+      ├─ intención = crear      → guardar TODO en una transacción
+      │                           → releer de la base
+      │                           → confirmar + [✏️ Corregir] [↩️ Deshacer]
+      │                           → actualizar tablero
+      ├─ intención = modificar  → resolver candidatos (fuzzy, en el servidor)
+      │                           → guardar propuesta (TTL 30')
+      │                           → mostrar botones. NO ejecuta nada.
+      ├─ intención = recado     → mandar el mensaje al instante, mencionando
+      │                           (si tiene fecha futura: es una tarea, no un recado)
+      └─ intención = charla     → respuesta corta, no crea nada
+```
+
+No hay ningún camino en el que un texto modifique algo existente.
+
+### Callback (toque de botón)
+
+```
+callback
+ ├─ ¿ya lo procesamos? (callback_query.id en updates_vistos) → answerCallbackQuery y listo
+ ├─ acción sobre un ítem (✅, ⋯, fecha, quién, renombrar, borrar, súper)
+ │    ├─ el ítem ya no existe o ya está resuelto
+ │    │    → answerCallbackQuery("Eso ya estaba resuelto ✨") + refrescar la vista
+ │    └─ ejecutar en una transacción → answerCallbackQuery corto → actualizar tablero
+ ├─ propuesta (prop:<id>:<opción>)
+ │    → validar ítem por ítem; ejecutar los que sigan pendientes
+ │    → editar el mensaje de la propuesta con el resultado y sacarle los botones
+ ├─ deshacer (und:<id>) → si venció: answerCallbackQuery("Ya no se puede deshacer")
+ └─ sección / súper / cerrar → mensaje temporal
+```
+
+### Cron (cada 15 minutos)
+
+```
+cron
+ ├─ vaciar cola de salida (mensajes que no se pudieron mandar)
+ ├─ parte diario, si corresponde (ver más abajo)
+ ├─ limpiar mensajes temporales vencidos
+ ├─ vencer deshacer y propuestas
+ └─ flushear el tablero si quedó sucio
+```
+
+## Esquema de `callback_data`
+
+Telegram limita a **64 bytes**. Formato: `v|acción|arg1|arg2`, con `v=2` para poder
+convivir con botones viejos de v1 (que tienen otra forma y se responden con "Ese botón
+es de la versión anterior").
+
+| Acción | Forma | Ejemplo | Bytes típicos |
+|---|---|---|---|
+| Completar | `2\|ok\|<id>` | `2\|ok\|417` | 9 |
+| Abrir menú ⋯ | `2\|m\|<id>` | `2\|m\|417` | 8 |
+| Mover a día rápido | `2\|d\|<id>\|<h\|m\|s\|l\|a>` | `2\|d\|417\|m` | 10 |
+| Submenú de día | `2\|d+\|<id>` | `2\|d+\|417` | 9 |
+| Pedir fecha escrita | `2\|df\|<id>` | `2\|df\|417` | 9 |
+| Responsable | `2\|q\|<id>\|<slug>` | `2\|q\|417\|barbu` | 15 |
+| Renombrar | `2\|r\|<id>` | `2\|r\|417` | 8 |
+| Mover al súper / a tareas | `2\|sw\|<id>` | `2\|sw\|417` | 9 |
+| Borrar | `2\|x\|<id>` | `2\|x\|417` | 8 |
+| Borrar recurrente | `2\|x\|<id>\|<una\|todas>` | `2\|x\|417\|todas` | 14 |
+| Sección | `2\|sec\|<clave>` | `2\|sec\|semana` | 12 |
+| Súper | `2\|sup` | `2\|sup` | 5 |
+| Tachar todo el súper | `2\|supx` | `2\|supx` | 6 |
+| Propuesta | `2\|p\|<id>\|<opción>` | `2\|p\|93\|todas` | 14 |
+| Deshacer | `2\|u\|<id>` | `2\|u\|93` | 7 |
+| Madrugada | `2\|mad\|<id>` | `2\|mad\|93` | 9 |
+| Cerrar | `2\|c` | `2\|c` | 3 |
+
+Los ids son enteros de la base y los slugs vienen de `NOTITA_PERSONAS`. El peor caso
+(un slug largo) queda holgadamente bajo 64 bytes; hay un test que lo verifica para
+todos los botones que genera el código.
+
+## Datos
+
+Tablas que se agregan:
+
+| Tabla | Para qué |
+|---|---|
+| `tablero` | `chat_id`, `message_id`, `editado_en`, `sucio` |
+| `mensajes_temporales` | menús y vistas que se borran solas (`expira_at`, `tipo`) |
+| `propuestas` | lo que el texto propuso, sin ejecutar (`payload` JSON, TTL 30') |
+| `deshacer` | qué ítems creó un mensaje (TTL 10') |
+| `partes_enviados` | una fila por día: el parte sale una sola vez |
+| `pausa` | hasta cuándo Notita no manda el parte |
+| `ajustes` | banderitas sueltas (ej. si ya se mandó la bienvenida de v2) |
+
+En `tasks` se agrega `mensaje_origen_id` (para deshacer y para saber de qué mensaje
+salió). Ya existían `due_hora`, `created_by`, `completed_by` y `completed_at`.
+
+Se **borran** `recordada_veces` y `last_reminded_on`: eran del auto-posponer y del
+recordatorio por tarea, que no existen más.
+
+## El parte diario
+
+Es el único envío programado y el único con notificación.
+
+- Sale a `NOTITA_HORA` (default 20:00) en `NOTITA_TZ`.
+- `partes_enviados` tiene la fecha como clave primaria: el cron puede llamar mil veces.
+- No sale antes de `NOTITA_HORA`. Si son las 23:59 y no salió, **no se manda tarde**:
+  al otro día, la primera corrida manda "Perdón, anoche se me pasó el parte 🙈" y el
+  parte de hoy.
+- **Nada se mueve solo.** Una vencida queda vencida hasta que alguien toque un botón.
+
+## Decisiones que tomé y no estaban en el brief
+
+1. **La tabla sigue llamándose `tasks` y la base `notita.db`** (el backup es
+   `notita.db.v1.bak`). El brief dice `items.db`; renombrar la tabla obligaría a una
+   migración de datos con riesgo y cero beneficio.
+2. **Los candidatos de una propuesta los resuelve el servidor, no el LLM.** El brief
+   dice que el LLM devuelve "candidatos (ids de la base)", pero el modelo no conoce los
+   ids: mandárselos sería darle de nuevo el poder de elegir mal. El LLM devuelve las
+   *palabras* con las que nombraron cada cosa y el servidor las resuelve contra la base
+   con el matcher que ya existe. El resultado visible es el mismo y el modelo no puede
+   inventar un id.
+3. **El debounce del tablero es por update, no por temporizador.** No hay forma
+   confiable de programar un timer en un worker de PythonAnywhere. Se edita como mucho
+   una vez por update, al final; si la última edición fue hace menos de 3 segundos, se
+   marca `sucio` y lo flushea el próximo evento (update o cron).
+4. **`updates_vistos` guarda también los `callback_query.id`**, con el mismo mecanismo
+   (el INSERT es la guarda). Son strings, así que la columna pasa a TEXT.
+5. **Los force_reply (renombrar, escribir fecha) usan la tabla `pending` que ya existe**,
+   con `kind='renombrar'` y `kind='fecha_item'`. Pero a diferencia de v1, **no se
+   consumen del mensaje siguiente cualquiera**: se aceptan sólo si el mensaje es una
+   *respuesta* (`reply_to_message`) al force_reply. Si no, el mensaje se procesa normal.
+   Esto es lo que hace que el principio 3 se cumpla de verdad.
+6. **La detección de duplicados es por texto normalizado exacto**, no difusa. En v1 el
+   fuzzy tachaba pantuflas cuando comprabas pan.
+7. **"Esta semana" llega hasta el domingo inclusive.** Un domingo la sección queda
+   vacía y lo del lunes cae en "Mañana".
+8. **El menú "⋯" y las secciones son mensajes nuevos, no ediciones del tablero.** El
+   brief lo pide ("el tablero nunca navega") y además evita que lo que toca uno le
+   cambie la pantalla al otro.
+9. **El mensaje del súper renueva su TTL con cada toque** (se usa mientras se compra),
+   los demás temporales no.
+10. **Sin Gemini, las propuestas también funcionan**: la heurística local reconoce
+    "ya compré X" y "borrá Y" y arma la propuesta. No ejecuta nada, así que un error
+    del parser local tampoco rompe nada.
+11. **La pausa se pide por texto y se confirma con botón**, como cualquier otra
+    modificación.
+12. **Los recados diferidos que haya pendientes al migrar se descartan** (el brief lo
+    pide) y se avisa en el mensaje de bienvenida cuántos eran.

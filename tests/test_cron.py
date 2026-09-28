@@ -50,5 +50,5 @@ def test_con_la_clave_correcta_corre_la_rutina(cliente, enviados):
     r = cliente.post("/cron/recordatorios", headers={"X-Cron-Secret": CLAVE})
     assert r.status_code == 200
     assert r.json["ok"] is True
-    assert r.json["resultado"]["recordatorios"] == 1
+    assert "parte" in r.json["resultado"]
     assert any("basura" in e.get("text", "") for e in enviados)

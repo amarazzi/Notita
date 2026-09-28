@@ -10,6 +10,9 @@ import requests
 from . import config
 
 log = logging.getLogger("notita.telegram")
+# La descripción del último error de la API, para distinguir un «message is not
+# modified» (inofensivo) de un mensaje que ya no existe.
+_ULTIMO_ERROR: dict[str, str] = {}
 API = "https://api.telegram.org/bot{token}/{method}"
 TIMEOUT = 20
 # El proxy de las cuentas gratuitas de PythonAnywhere falla de a ratos, no de a
@@ -23,13 +26,22 @@ ESPERA_MAXIMA = 5
 
 
 def llamar(metodo: str, **payload) -> dict | None:
+    """Toda la conversación con Telegram pasa por acá: reintentos y 429 en un lugar.
+
+    Con `_archivo=(nombre, bytes)` manda multipart en vez de JSON (para el .ics).
+    """
     if not config.TELEGRAM_TOKEN:
         log.error("Falta TELEGRAM_TOKEN")
         return None
+    archivo = payload.pop("_archivo", None)
     url = API.format(token=config.TELEGRAM_TOKEN, method=metodo)
     for intento in range(1, INTENTOS + 1):
         try:
-            r = requests.post(url, json=payload, timeout=TIMEOUT)
+            if archivo:
+                r = requests.post(url, data=payload, timeout=TIMEOUT,
+                                  files={"document": (*archivo, "text/calendar")})
+            else:
+                r = requests.post(url, json=payload, timeout=TIMEOUT)
             data = r.json()
             if data.get("ok"):
                 return data.get("result")
@@ -43,7 +55,9 @@ def llamar(metodo: str, **payload) -> dict | None:
                             metodo, espera, intento, INTENTOS)
                 time.sleep(espera)
                 continue
-            log.error("Telegram %s falló: %s", metodo, data)
+            _ULTIMO_ERROR["descripcion"] = str(data.get("description") or "")
+            nivel = log.info if "not modified" in _ULTIMO_ERROR["descripcion"] else log.error
+            nivel("Telegram %s falló: %s", metodo, data)
             return None
         except requests.exceptions.ConnectionError as e:
             # El proxy de PythonAnywhere (cuentas gratis) a veces falla un instante: reintentamos.
@@ -111,9 +125,16 @@ def vaciar_cola(chat_id: int | None = None, limite: int = 5) -> int:
 
 
 def _mandar(chat_id: int, texto: str, teclado: list | None = None,
-            responder_a: int | None = None) -> dict | None:
+            responder_a: int | None = None, silencioso: bool = False,
+            forzar_respuesta: bool = False) -> dict | None:
     payload = {"chat_id": chat_id, "text": texto, "parse_mode": "HTML",
                "disable_web_page_preview": True}
+    if silencioso:
+        # Todo lo que Notita manda por iniciativa propia va sin notificación: el
+        # único que suena es el parte diario.
+        payload["disable_notification"] = True
+    if forzar_respuesta:
+        payload["reply_markup"] = {"force_reply": True, "selective": True}
     if teclado:
         payload["reply_markup"] = {"inline_keyboard": teclado}
     if responder_a:
@@ -123,9 +144,10 @@ def _mandar(chat_id: int, texto: str, teclado: list | None = None,
 
 
 def enviar(chat_id: int, texto: str, teclado: list | None = None,
-           responder_a: int | None = None) -> dict | None:
-    resultado = _mandar(chat_id, texto, teclado, responder_a)
-    if resultado is None:
+           responder_a: int | None = None, silencioso: bool = False,
+           forzar_respuesta: bool = False, encolar: bool = True) -> dict | None:
+    resultado = _mandar(chat_id, texto, teclado, responder_a, silencioso, forzar_respuesta)
+    if resultado is None and encolar:
         # No se pudo mandar (proxy caído, 429 largo). Antes se perdía en silencio y el
         # usuario veía que la acción se hizo pero nunca le contestamos. Ahora queda en
         # cola y sale en la próxima oportunidad.
@@ -136,16 +158,43 @@ def enviar(chat_id: int, texto: str, teclado: list | None = None,
     return resultado
 
 
-def editar(chat_id: int, message_id: int, texto: str, teclado: list | None = None) -> dict | None:
+def editar(chat_id: int, message_id: int, texto: str, teclado: list | None = None,
+           encolar: bool = False) -> dict | None:
     payload = {
         "chat_id": chat_id,
         "message_id": message_id,
         "text": texto,
         "parse_mode": "HTML",
         "disable_web_page_preview": True,
+        "reply_markup": {"inline_keyboard": teclado or []},
     }
-    payload["reply_markup"] = {"inline_keyboard": teclado or []}
-    return llamar("editMessageText", **payload)
+    resultado = llamar("editMessageText", **payload)
+    if resultado is None and encolar:
+        from . import db
+
+        db.encolar_saliente(chat_id, texto, teclado)
+    return resultado
+
+
+def editar_teclado(chat_id: int, message_id: int, teclado: list | None) -> dict | None:
+    """Cambia sólo los botones: sirve para sacar el «Deshacer» cuando vence."""
+    return llamar("editMessageReplyMarkup", chat_id=chat_id, message_id=message_id,
+                  reply_markup={"inline_keyboard": teclado or []})
+
+
+def borrar(chat_id: int, message_id: int) -> bool:
+    """Borra un mensaje. Si ya no está o es muy viejo, no pasa nada."""
+    return llamar("deleteMessage", chat_id=chat_id, message_id=message_id) is not None
+
+
+def fijar(chat_id: int, message_id: int) -> dict | None:
+    return llamar("pinChatMessage", chat_id=chat_id, message_id=message_id,
+                  disable_notification=True)
+
+
+def ultimo_error_fue_no_modificado() -> bool:
+    """Si el último fallo fue «message is not modified», que no es un problema."""
+    return "not modified" in (_ULTIMO_ERROR.get("descripcion") or "")
 
 
 def responder_callback(callback_id: str, texto: str = "") -> None:
@@ -163,3 +212,10 @@ def mencion(persona: str) -> str:
     if uid:
         return f'<a href="tg://user?id={uid}">{escapar(nombre)}</a>'
     return escapar(nombre)
+
+
+def mandar_archivo(chat_id: int, nombre: str, contenido: bytes,
+                   leyenda: str = "") -> dict | None:
+    """Manda un archivo (el .ics del calendario)."""
+    return llamar("sendDocument", chat_id=chat_id, caption=leyenda,
+                  disable_notification=True, _archivo=(nombre, contenido))
