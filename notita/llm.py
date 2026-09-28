@@ -33,28 +33,27 @@ NO_APLICA = -1
 
 # Qué quiere el mensaje. `anotar` es lo de siempre; el resto son cosas que Notita
 # ya sabía hacer pero sólo por comando.
+# v2: el texto sólo CREA. Las modificaciones se proponen y las confirma un botón.
 INTENCIONES = (
-    "anotar",
-    "ver_pendientes",
-    "ver_super",
-    "ver_algun_dia",
-    "ver_ayuda",
-    "completar",
-    "borrar",
-    "vaciar_super",     # «borrá todo lo del súper», «ya compramos todo»
-    "borrar_todo",      # «borrá todas las tareas» (se pide confirmación)
-    "reprogramar",      # «pasá lo del horno para el domingo»
-    "reasignar",        # «lo del veterinario lo hago yo»
-    "renombrar",        # «cambiá "regar" por "regar las plantas del balcón"»
-    "charla",
+    "crear",        # hay algo para anotar
+    "modificar",    # piden cambiar algo que ya existe -> se PROPONE, no se ejecuta
+    "recado",       # «decile a Barbu que…»: se dice al instante
+    "ver",          # piden ver la lista
+    "charla",       # cualquier otra cosa
 )
+
+ACCIONES_MODIFICAR = ("completar", "borrar", "mover", "renombrar", "reasignar",
+                      "vaciar_super", "pausar")
+
+# Para «todo lo de mañana»: el conjunto lo resuelve el servidor, no el modelo.
+CONJUNTOS = ("ninguno", "hoy", "manana", "vencidas", "semana", "algun_dia", "super", "todo")
 
 
 def _item_props() -> dict:
-    """El enum de `responsable` depende de quién vive en la casa, así que se arma al vuelo."""
+    """El enum de `responsable` depende de quién vive en la casa: se arma al vuelo."""
     return {
-        "texto": {"type": "string", "description": "La tarea en infinitivo, corta y clara. Ej: 'limpiar la heladera'. Si tipo='recado', el mensaje a transmitir tal como lo dijeron."},
-        "tipo": {"type": "string", "enum": ["casa", "compras", "recado"]},
+        "titulo": {"type": "string", "description": "La cosa a hacer, en infinitivo, corta y clara, bien escrita (sin abreviaturas). Sin la fecha ni el nombre de quién la hace. Si es del súper, sólo el producto: 'comprar detergente para los platos' -> 'Detergente para los platos'."},
+        "tipo": {"type": "string", "enum": ["tarea", "super"], "description": "super SÓLO si es un producto de consumo habitual de supermercado o almacén y no tiene fecha. Un mueble, un electrodoméstico, algo de ferretería o de vivero es tarea. Ante la duda: tarea."},
         "categoria": {"type": "string", "enum": list(config.CATEGORIAS)},
         "responsable": {"type": "string", "enum": list(config.PERSONAS)},
         "fecha_kind": {"type": "string", "enum": list(KINDS)},
@@ -62,16 +61,13 @@ def _item_props() -> dict:
         "fecha_day": {"type": "integer", "description": "Día del mes. -1 si no aplica."},
         "fecha_month": {"type": "integer", "description": "1-12. -1 si no aplica."},
         "fecha_year": {"type": "integer", "description": "Año de 4 dígitos. -1 si no aplica."},
-        "fecha_dias": {"type": "integer", "description": "Cantidad de días para fecha_kind='en_dias'. -1 si no aplica."},
-        "fecha_hora": {"type": "integer", "description": "Hora del día en formato 24h si la dijeron ('a las 18' -> 18, 'a las 6 de la tarde' -> 18). -1 si no dijeron hora."},
-        "fecha_minuto": {"type": "integer", "description": "Minutos de la hora ('18:30' -> 30). -1 si no aplica."},
-        "fecha_minutos": {"type": "integer", "description": "Para fecha_kind='en_minutos': cuántos minutos faltan ('en 2 horas' -> 120, 'en 10 minutos' -> 10). -1 si no aplica."},
+        "fecha_dias": {"type": "integer", "description": "Días para fecha_kind='en_dias'. -1 si no aplica."},
+        "fecha_hora": {"type": "integer", "description": "Hora del día en 24h si la dijeron ('a las 6 de la tarde' -> 18). -1 si no."},
+        "fecha_minuto": {"type": "integer", "description": "Minutos de la hora. -1 si no aplica."},
         "recur_kind": {"type": "string", "enum": ["ninguna", "diaria", "semanal", "mensual", "anual"]},
-        "recur_interval": {"type": "integer", "description": "Cada cuántos períodos se repite. 1 por defecto."},
-        "recur_weekday": {"type": "integer", "description": "0=lunes ... 6=domingo para recurrencia semanal. -1 si no aplica."},
-        "recur_monthday": {"type": "integer", "description": "Día fijo del mes para recurrencia mensual. -1 si no aplica."},
-        "necesita_aclaracion": {"type": "boolean", "description": "true si no estás seguro de qué es esto."},
-        "pregunta": {"type": "string", "description": "Si necesita_aclaracion, la pregunta corta a hacer. Si no, ''."},
+        "recur_interval": {"type": "integer", "description": "Cada cuántos períodos. 1 por defecto."},
+        "recur_weekday": {"type": "integer", "description": "0=lunes ... 6=domingo para la semanal. -1 si no aplica."},
+        "recur_monthday": {"type": "integer", "description": "Día fijo del mes para la mensual. -1 si no aplica."},
     }
 
 
@@ -80,187 +76,123 @@ def schema_mensaje() -> dict:
     return {
         "type": "object",
         "properties": {
-            "intencion": {"type": "string", "enum": list(INTENCIONES),
-                          "description": "Qué quiere el mensaje."},
-            # Ojo: Gemini rechaza el string vacío dentro de un enum, de ahí "ninguna".
-            "categoria_filtro": {"type": "string", "enum": ["ninguna", *config.CATEGORIAS],
-                                 "description": "Si intencion=ver_pendientes y pidieron una categoría puntual; si no, 'ninguna'."},
-            "referencia": {"type": "string",
-                           "description": "Igual que objetivos pero cuando hay uno solo. Si usás objetivos, dejalo en ''."},
-            "objetivos": {
-                "type": "array",
-                "description": "Si intencion=completar, borrar, reprogramar, reasignar o renombrar: UNA ENTRADA POR CADA tarea mencionada, con las palabras del mensaje. 'borrá la yerba y el papel higiénico' -> ['yerba', 'papel higiénico'].",
-                "items": {"type": "string"},
-            },
-            "cambio_fecha_kind": {"type": "string", "enum": list(KINDS),
-                                  "description": "Si intencion=reprogramar: la fecha nueva. Si no, 'desconocida'."},
-            "cambio_fecha_weekday": {"type": "integer", "description": "0=lunes ... 6=domingo. -1 si no aplica."},
-            "cambio_fecha_day": {"type": "integer", "description": "Día del mes. -1 si no aplica."},
-            "cambio_fecha_month": {"type": "integer", "description": "1-12. -1 si no aplica."},
-            "cambio_fecha_year": {"type": "integer", "description": "Año de 4 dígitos. -1 si no aplica."},
-            "cambio_fecha_dias": {"type": "integer", "description": "Días para cambio_fecha_kind='en_dias'. -1 si no aplica."},
-            "cambio_fecha_hora": {"type": "integer", "description": "Hora nueva en 24h. -1 si no dijeron hora."},
-            "cambio_fecha_minuto": {"type": "integer", "description": "Minutos de la hora nueva. -1 si no aplica."},
-            "cambio_fecha_minutos": {"type": "integer", "description": "Minutos desde ahora para cambio_fecha_kind='en_minutos'. -1 si no aplica."},
-            "cambio_responsable": {"type": "string", "enum": list(config.PERSONAS),
-                                   "description": "Si intencion=reasignar: quién queda a cargo. Si no, 'ninguno'."},
-            "cambio_texto": {"type": "string",
-                             "description": "Si intencion=renombrar: el nombre nuevo de la tarea. Si no, ''."},
-            "es_tarea": {"type": "boolean", "description": "true si hay algo para anotar (equivale a intencion=anotar)."},
-            "comentario": {"type": "string", "description": "Si no hay nada para anotar, una respuesta breve y cariñosa. Si no, ''."},
+            "intencion": {"type": "string", "enum": list(INTENCIONES)},
+            "comentario": {"type": "string", "description": "Si intencion=charla o ver, una respuesta breve y cálida. Si no, ''."},
             "items": {
                 "type": "array",
+                "description": "Si intencion=crear: uno por cada cosa mencionada.",
                 "items": {
                     "type": "object",
                     "properties": props,
-                    "required": ["texto", "tipo", "categoria", "responsable", "fecha_kind",
-                                 "recur_kind", "necesita_aclaracion"],
+                    "required": ["titulo", "tipo", "categoria", "responsable", "fecha_kind",
+                                 "recur_kind"],
                     "propertyOrdering": list(props),
                 },
             },
+            "accion": {"type": "string", "enum": ["ninguna", *ACCIONES_MODIFICAR],
+                       "description": "Si intencion=modificar: qué quieren hacer."},
+            "referencias": {
+                "type": "array",
+                "description": "Si intencion=modificar: UNA ENTRADA POR CADA cosa mencionada, con las palabras del mensaje. 'ya compré la leche y la lavandina' -> ['leche', 'lavandina'].",
+                "items": {"type": "string"},
+            },
+            "conjunto": {"type": "string", "enum": list(CONJUNTOS),
+                         "description": "Si en vez de nombrar cosas hablan de un grupo entero ('todo lo de mañana' -> manana, 'todas las tareas' -> todo, 'todo el súper' -> super). Si nombran cosas puntuales: 'ninguno'."},
+            "destino_fecha_kind": {"type": "string", "enum": list(KINDS),
+                                   "description": "Si accion=mover: a cuándo. Si no, 'desconocida'."},
+            "destino_fecha_weekday": {"type": "integer", "description": "0=lunes ... 6=domingo. -1 si no aplica."},
+            "destino_fecha_day": {"type": "integer", "description": "Día del mes. -1 si no aplica."},
+            "destino_fecha_month": {"type": "integer", "description": "1-12. -1 si no aplica."},
+            "destino_fecha_year": {"type": "integer", "description": "Año. -1 si no aplica."},
+            "destino_fecha_dias": {"type": "integer", "description": "Días. -1 si no aplica."},
+            "destino_fecha_hora": {"type": "integer", "description": "Hora nueva en 24h. -1 si no."},
+            "destino_fecha_minuto": {"type": "integer", "description": "Minutos. -1 si no aplica."},
+            "destino_responsable": {"type": "string", "enum": list(config.PERSONAS),
+                                    "description": "Si accion=reasignar: quién queda a cargo."},
+            "destino_texto": {"type": "string", "description": "Si accion=renombrar: el nombre nuevo. Si no, ''."},
+            "recado_para": {"type": "string", "enum": list(config.PERSONAS),
+                            "description": "Si intencion=recado: a quién. Si no, 'ninguno'."},
+            "recado_mensaje": {"type": "string", "description": "Si intencion=recado: el mensaje, escrito como si se lo dijeran en la cara ('decile a Axel que lo amo' -> 'te amo'). Si no, ''."},
+            "ver_que": {"type": "string", "enum": ["ninguno", "tablero", "super"],
+                        "description": "Si intencion=ver: qué quieren ver."},
         },
-        "required": ["intencion", "es_tarea", "items"],
-        "propertyOrdering": ["intencion", "categoria_filtro", "referencia", "objetivos",
-                             "cambio_fecha_kind", "cambio_fecha_weekday", "cambio_fecha_day",
-                             "cambio_fecha_month", "cambio_fecha_year", "cambio_fecha_dias",
-                             "cambio_fecha_hora", "cambio_fecha_minuto", "cambio_fecha_minutos",
-                             "cambio_responsable", "cambio_texto",
-                             "es_tarea", "comentario", "items"],
+        "required": ["intencion", "items"],
+        "propertyOrdering": ["intencion", "comentario", "items", "accion", "referencias",
+                             "conjunto", "destino_fecha_kind", "destino_fecha_weekday",
+                             "destino_fecha_day", "destino_fecha_month",
+                             "destino_fecha_year", "destino_fecha_dias",
+                             "destino_fecha_hora", "destino_fecha_minuto",
+                             "destino_responsable", "destino_texto",
+                             "recado_para", "recado_mensaje", "ver_que"],
     }
 
 
-SCHEMA_FECHA = {
-    "type": "object",
-    "properties": {
-        "fecha_kind": {"type": "string", "enum": list(KINDS)},
-        "fecha_weekday": {"type": "integer"},
-        "fecha_day": {"type": "integer"},
-        "fecha_month": {"type": "integer"},
-        "fecha_year": {"type": "integer"},
-        "fecha_dias": {"type": "integer"},
-    },
-    "required": ["fecha_kind"],
-    "propertyOrdering": ["fecha_kind", "fecha_weekday", "fecha_day", "fecha_month",
-                         "fecha_year", "fecha_dias"],
-}
-
 def _quienes_viven() -> str:
-    """Los nombres y los slugs de la casa, explicados para el prompt."""
     if not config.PERSONAS_CASA:
         return '- responsable: siempre "ninguno" (no hay personas configuradas).'
     pares = ", ".join(f'"{p.slug}" para {p.nombre}' for p in config.PERSONAS_CASA)
     todos = "de los dos" if len(config.PERSONAS_CASA) == 2 else "de todos"
-    return (f'- responsable: {pares} si el mensaje dice quién lo hace\n'
-            f'  (ej. "{config.PERSONAS_CASA[0].nombre} tiene que llamar al veterinario"),\n'
+    return (f'- responsable: {pares} si el mensaje dice quién lo hace,\n'
             f'  "ambos" si es {todos}, "ninguno" si no se menciona. No adivines.')
 
 
 def _sistema() -> str:
     return f"""Sos Notita, un bot que organiza las tareas de una casa donde viven {config.nombres_de_la_casa()}.
-Recibís mensajes en español rioplatense de un grupo de Telegram.
+Recibís mensajes de un grupo de Telegram que se usa SÓLO para vos.
 {f"Sobre la casa: {config.CONTEXTO_CASA}" if config.CONTEXTO_CASA else ""}
-Lo PRIMERO es decidir la intención del mensaje:
-- "anotar": hay algo para anotar (una tarea, algo del súper, o un recado). es_tarea=true.
-- "ver_pendientes": piden ver lo que hay que hacer ("qué hay que hacer", "mostrame las
-  tareas", "qué tenemos pendiente"). Si piden una categoría puntual ("las de limpieza"),
-  poné categoria_filtro; si no, categoria_filtro="ninguna".
-- "ver_super": piden ver la lista del súper ("mostrame el súper", "qué falta comprar").
-- "ver_algun_dia": piden ver lo que no tiene fecha.
-- "ver_ayuda": preguntan cómo funcionás o qué sabés hacer.
-- "completar": avisan que algo YA SE HIZO, con un VERBO EN PASADO ("ya limpié la
-  heladera", "listo lo del plomero", "hecho lo del veterinario", "ya compré la leche").
-- "borrar": piden borrar, sacar o cancelar algo. Empieza con un verbo de borrar, aunque
-  esté mal escrito: "borrá la de la heladera", "elimna lo del plomero", "sacá la del
-  turno", "olvidate del veterinario", "eliminar decile a Axel que lo amo".
-  OJO: si el mensaje arranca con un verbo de borrar, la intención es "borrar" aunque lo
-  que sigue parezca una tarea nueva o un recado: lo que sigue es el NOMBRE de la que hay
-  que borrar.
-- "vaciar_super": piden limpiar la lista del súper ENTERA ("borrá todo lo del súper",
-  "vaciá el súper", "ya compramos todo", "listo, compré todo").
-  OJO: sólo si NO nombran cosas puntuales. "borrá la yerba y el papel higiénico del
-  súper" nombra dos cosas: eso es "borrar" con objetivos=["yerba", "papel higiénico"],
-  NO vaciar_super. Mencionar el súper no lo convierte en masivo.
-- "borrar_todo": piden borrar TODAS las tareas ("borrá todo", "borrá todas las tareas",
-  "empecemos de cero"). Ojo: si dicen "todo lo del súper" es vaciar_super, y si nombran
-  tareas puntuales es "borrar".
-- "reprogramar": piden mover algo de fecha u hora ("pasá lo del horno para el domingo",
-  "movelo al martes", "lo de la inmobiliaria a las 18"). Poné la fecha nueva en los
-  campos cambio_fecha_*.
-- "reasignar": cambian quién lo hace ("lo del veterinario lo hago yo", "que lo haga
-  Barbu"). Poné cambio_responsable. Si dice "yo", es quien escribe el mensaje.
-- "renombrar": cambian el nombre ("cambiá 'regar' por 'regar las plantas del balcón'",
-  "no era el baño, era la cocina"). Poné el nombre nuevo en cambio_texto.
-- "charla": cualquier otra cosa. items=[] y un comentario breve.
-Cuando la intención no es "anotar", devolvé items=[] y es_tarea=false.
 
-OBJETIVOS: en completar, borrar, reprogramar, reasignar y renombrar puede haber VARIAS
-tareas en un mensaje. Poné UNA ENTRADA POR CADA UNA en `objetivos`, con las palabras del
-mensaje: "borrá la yerba y el papel higiénico del súper" -> objetivos=["yerba", "papel
-higiénico"]; "ya compré la leche y la lavandina" -> objetivos=["leche", "lavandina"].
-Con una sola tarea, igual usá `objetivos` con un elemento.
+Tu trabajo es clasificar el mensaje en UNA intención:
 
-CUIDADO con el pasado: un infinitivo o un imperativo con fecha pasada NO es completar,
-es una tarea que quedó pendiente. "sacar la basura ayer" -> anotar con fecha_kind="ayer".
-"saqué la basura ayer" (verbo en pasado) -> completar. La diferencia es el verbo, no la fecha.
+- "crear": hay algo para anotar. Un mensaje puede tener VARIAS cosas: una por item.
+  "hay que limpiar la heladera, llamar al plomero y falta leche" son 3 items.
+- "modificar": piden cambiar algo que YA existe: darlo por hecho ("ya compré la
+  leche"), borrarlo ("borrá lo del plomero"), moverlo de día ("pasá lo del horno al
+  domingo", "todo lo de mañana para hoy"), renombrarlo o cambiar quién lo hace.
+  También "ya compramos todo" (accion=vaciar_super) y "pausá Notita hasta el 10"
+  (accion=pausar).
+  VOS NO EJECUTÁS NADA: sólo describís el pedido. Alguien va a confirmar con un botón.
+  Poné en `referencias` una entrada por cada cosa nombrada, con las palabras del
+  mensaje. Si en cambio hablan de un grupo entero, usá `conjunto`.
+- "recado": le piden que le transmita algo a alguien de la casa, para AHORA
+  ("decile a Barbu que ya salí"). `recado_mensaje` va en primera persona.
+  OJO: si el recado es para más tarde o para otro día ("decile mañana que compre
+  pan"), NO es un recado: es "crear" un item con esa fecha y ese responsable.
+- "ver": piden ver la lista o el súper.
+- "charla": saludos, gracias, preguntas, cualquier otra cosa. items=[].
 
-MUY IMPORTANTE: no prometas nada que no esté en esa lista. Vos podés anotar, mostrar,
-completar, borrar y transmitir recados. No digas "se lo digo", "le aviso" o "te recuerdo"
-salvo que hayas creado el item correspondiente.
+CUIDADO con el pasado: un infinitivo con fecha pasada es algo que quedó pendiente,
+no algo hecho. "sacar la basura ayer" -> crear con fecha_kind="ayer".
+"saqué la basura" (verbo en pasado) -> modificar/completar. La diferencia es el verbo.
 
-Cuando escribís un comentario: breve, cálido y directo. NUNCA arranques con "Che"
-ni con vocativos parecidos ("Ey", "Mirá vos"): anda derecho a lo que querés decir.
-
-Los mensajes se escriben rápido desde el celular: vienen con errores de tipeo, sin
-tildes y con abreviaturas ("elimna", "borra", "q", "xq", "porfa", "kiero"). Entendé la
-intención igual, no la tomes como charla por estar mal escrita. Ante la duda entre
-"charla" y un pedido que casi se entiende, elegí el pedido.
-
-Reglas para anotar:
-- Un mensaje puede contener VARIAS tareas: separalas en items distintos.
-  "hay que limpiar la heladera, llamar al plomero y comprar focos" son 3 items.
-- tipo="compras" si es algo que se compra en el super o en un negocio
-  ("falta leche", "comprar yerba", "se acabó el detergente").
-- tipo="recado" si le piden que le TRANSMITA un mensaje a alguien de la casa:
-  "decile a Axel que lo amo", "avisale a Barbu que la busco a las 8".
-  En ese caso `texto` es el mensaje a transmitir, redactado como si la persona se lo
-  dijera EN LA CARA a quien lo recibe: "decile a Axel que lo amo" -> texto="te amo";
-  "avisale a Barbu que la busco a las 8" -> texto="te busco a las 8".
-  `responsable` es a QUIÉN hay que decírselo,
-  y fecha_kind es cuándo ("mañana" -> manana; si no dicen nada -> hoy, nunca desconocida).
-  categoria="otros".
-- Todo lo demás es tipo="casa".
-  Los items de compras siempre llevan categoria="compras" y fecha_kind="algun_dia".
+Reglas de los items:
 {_quienes_viven()}
 - categoria: limpieza, arreglos, tramites, pagos, mascotas, compras u otros.
-  * pagos: SOLO si hay que pagar plata (facturas, expensas, alquiler, impuestos).
-  * tramites: gestiones, papeles, turnos, renovar cuentas o servicios sin pagar.
-  * arreglos: reparar o instalar cosas en la casa. limpieza: limpiar u ordenar.
-  * mascotas: todo lo de los animales de la casa. otros: lo que no encaje en ninguna.
-- fecha_kind: elegí la INTENCIÓN, no calcules la fecha. Nunca devuelvas una fecha calculada.
+  * pagos: SOLO si hay que pagar plata. tramites: gestiones, papeles, turnos.
+  * arreglos: reparar o instalar. limpieza: limpiar u ordenar.
+  * mascotas: los animales de la casa. otros: lo que no encaje.
+- tipo="super" SÓLO para productos de consumo habitual de supermercado o almacén sin
+  fecha ("falta leche", "se acabó el café"). Un mueble, un electrodoméstico, algo de
+  ferretería o de vivero es "tarea", aunque diga "comprar". Ante la duda: tarea.
+- fecha_kind: elegí la INTENCIÓN, no calcules la fecha. Nunca devuelvas una fecha hecha.
   * "el lunes" -> dia_semana con fecha_weekday=0
   * "el lunes de la semana que viene" -> dia_semana_prox
   * "esta semana" -> esta_semana ; "la semana que viene" -> semana_que_viene
-  * "mañana" -> manana ; "pasado" -> pasado ; "hoy" -> hoy
+  * "mañana" -> manana ; "pasado" -> pasado ; "hoy" -> hoy ; "ayer" -> ayer
   * "el 3 de octubre" -> fecha_exacta con fecha_day=3, fecha_month=10
   * "todos los 10" -> dia_del_mes con fecha_day=10
   * "algún día", "no sé", "cuando se pueda" -> algun_dia
-  * "ayer" -> ayer ; "anteayer" -> anteayer (tareas que quedaron sin hacer)
-  * "en 2 horas", "en 10 minutos" -> en_minutos con fecha_minutos=120 o 10
-  * si el mensaje NO dice nada de cuándo -> desconocida (así se lo preguntamos)
-- LA HORA: si dicen una hora, ponela en fecha_hora (0-23) y fecha_minuto.
-  "el jueves a las 18" -> dia_semana, fecha_weekday=3, fecha_hora=18, fecha_minuto=0.
-  "a las 6 de la tarde" -> fecha_hora=18. "a las 8 de la mañana" -> fecha_hora=8.
-  "18:30" -> fecha_hora=18, fecha_minuto=30. Si no dicen hora, -1.
-- recur_kind si se repite: "cada semana" -> semanal, "todos los 10" -> mensual con
-  recur_monthday=10, "todos los martes" -> semanal con recur_weekday=1.
-- Campos numéricos que no aplican: mandá -1.
-- texto: corto, en infinitivo, sin la parte de la fecha ni el nombre del responsable.
-  Escribilo bien, aunque el mensaje venga abreviado: "pa los platos" -> "para los
-  platos", "q" -> "que". En los items de compras no hace falta el verbo: poné la cosa
-  ("comprar lavandina" -> "lavandina").
-  (Los recados son la excepción: van tal como los dijeron.)
-- Si algo es muy ambiguo y no sabés si es una tarea o qué significa,
-  poné necesita_aclaracion=true y escribí una pregunta corta y tierna.
+  * si el mensaje NO dice cuándo -> desconocida
+- La hora, si la dicen, va en fecha_hora (24h) y fecha_minuto.
+  "a las 6 de la tarde" -> 18. "18:30" -> 18 y 30.
+- recur_kind si se repite: "cada semana" -> semanal; "todos los 10" -> mensual con
+  recur_monthday=10; "cada 3 días" -> diaria con recur_interval=3.
+- Campos numéricos que no aplican: -1.
+
+Cómo hablás: español rioplatense, cálido y breve, con algún emoji. NUNCA uses "che"
+ni arranques con vocativos ("Ey", "Mirá vos"). No prometas nada que no hagas: no
+avisás a horas exactas ni mandás recados para más tarde.
+Los mensajes vienen con errores de tipeo y abreviaturas ("q", "xq", "pa", "elimna"):
+entendelos igual.
 """
 
 
@@ -454,6 +386,23 @@ def interpretar_mensaje(texto: str, autor: str, ref: date | None = None,
     partes.append(f"Mensaje: «{texto}»")
     return _call("\n".join(partes), schema_mensaje(), _sistema())
 
+
+SCHEMA_FECHA = {
+    "type": "object",
+    "properties": {
+        "fecha_kind": {"type": "string", "enum": list(KINDS)},
+        "fecha_weekday": {"type": "integer"},
+        "fecha_day": {"type": "integer"},
+        "fecha_month": {"type": "integer"},
+        "fecha_year": {"type": "integer"},
+        "fecha_dias": {"type": "integer"},
+        "fecha_hora": {"type": "integer"},
+        "fecha_minuto": {"type": "integer"},
+    },
+    "required": ["fecha_kind"],
+    "propertyOrdering": ["fecha_kind", "fecha_weekday", "fecha_day", "fecha_month",
+                         "fecha_year", "fecha_dias", "fecha_hora", "fecha_minuto"],
+}
 
 SISTEMA_FECHA = """Convertís expresiones de fecha en español rioplatense a una intención.
 NO calcules fechas: elegí el tipo y los campos. Los campos que no aplican van en -1.

@@ -13,7 +13,7 @@ MARTES = date(2026, 9, 29)
 
 def un_item(texto: str) -> dict:
     data = heuristica.interpretar(texto)
-    assert data["es_tarea"], f"no lo tomó como tarea: {texto}"
+    assert data["intencion"] == "crear", f"no lo tomó como tarea: {texto}"
     assert len(data["items"]) == 1, data["items"]
     return data["items"][0]
 
@@ -72,12 +72,12 @@ def test_sin_recurrencia_no_toca_el_texto():
 # --------------------------------------------------------------------------
 
 @pytest.mark.parametrize("frase", [
-    "falta leche", "comprar yerba", "se acabó el detergente", "hay que comprar focos",
+    "falta leche", "comprar yerba", "se acabó el detergente",
     "faltan servilletas", "traer pan",
 ])
 def test_lo_que_va_al_super(frase):
     item = un_item(frase)
-    assert item["tipo"] == "compras"
+    assert item["tipo"] == "super"
     assert item["categoria"] == "compras"
     assert item["fecha_kind"] == "algun_dia"  # el súper no pregunta fecha
 
@@ -89,7 +89,7 @@ def test_lo_que_va_al_super(frase):
     "falta sacar la basura",
 ])
 def test_lo_que_no_va_al_super(frase):
-    assert un_item(frase)["tipo"] == "casa"
+    assert un_item(frase)["tipo"] == "tarea"
 
 
 @pytest.mark.parametrize("frase,categoria", [
@@ -107,13 +107,13 @@ def test_categorias_por_palabra_clave(frase, categoria):
 def test_responsable_por_nombre():
     item = un_item("Barbu tiene que llamar al veterinario el lunes")
     assert item["responsable"] == "barbu"
-    assert item["texto"] == "llamar al veterinario"  # sin el nombre ni la fecha
+    assert item["titulo"] == "llamar al veterinario"  # sin el nombre ni la fecha
 
 
 def test_responsable_ambos():
     item = un_item("los dos tenemos que ordenar el placard mañana")
     assert item["responsable"] == "ambos"
-    assert item["texto"] == "ordenar el placard"
+    assert item["titulo"] == "ordenar el placard"
 
 
 def test_responsable_cuando_se_nombran_los_dos():
@@ -130,22 +130,23 @@ def test_sin_responsable():
 
 def test_separa_por_comas():
     data = heuristica.interpretar("hay que limpiar la heladera, llamar al plomero y comprar focos")
-    assert [i["texto"] for i in data["items"]] == [
+    assert [i["titulo"] for i in data["items"]] == [
         "limpiar la heladera", "llamar al plomero", "comprar focos"]
-    assert [i["tipo"] for i in data["items"]] == ["casa", "casa", "compras"]
+    # «focos» es ferretería: en v2 va a tareas, no al súper.
+    assert [i["tipo"] for i in data["items"]] == ["tarea", "tarea", "tarea"]
 
 
 def test_una_lista_del_super_contagia_el_tipo():
     # El verbo está sólo en el primer pedazo: «comprar yerba, pan y dulce de leche».
     data = heuristica.interpretar("comprar yerba, pan y dulce de leche")
-    assert [i["texto"] for i in data["items"]] == ["comprar yerba", "pan", "dulce de leche"]
-    assert all(i["tipo"] == "compras" for i in data["items"])
+    assert [i["titulo"] for i in data["items"]] == ["comprar yerba", "pan", "dulce de leche"]
+    assert all(i["tipo"] == "super" for i in data["items"])
 
 
 def test_sin_comas_no_parte_la_frase():
     # Sin LLM no arriesgamos: «y» sin coma puede ser parte de la tarea.
     item = un_item("hablar con el plomero y el electricista")
-    assert item["texto"] == "hablar con el plomero y el electricista"
+    assert item["titulo"] == "hablar con el plomero y el electricista"
 
 
 def test_enumeracion_larguisima_se_deja_entera():
@@ -163,13 +164,13 @@ def test_enumeracion_larguisima_se_deja_entera():
 ])
 def test_la_charla_no_se_anota(frase, responde):
     data = heuristica.interpretar(frase)
-    assert data["es_tarea"] is False
+    assert data["intencion"] != "crear"
     assert bool(data["comentario"]) is responde
 
 
 def test_una_sola_palabra_rara_igual_se_anota():
     # Ante la duda, preferimos anotar algo raro antes que perderlo.
-    assert un_item("mudanza")["texto"] == "mudanza"
+    assert un_item("mudanza")["titulo"] == "mudanza"
 
 
 # --------------------------------------------------------------------------
@@ -210,10 +211,16 @@ def test_sin_api_key_no_pregunta_fecha_si_ya_la_dijeron(enviados, monkeypatch):
     assert db.pendientes(CHAT)[0]["due_date"] == (hoy() + timedelta(days=1)).isoformat()
 
 
-def test_sin_api_key_pregunta_fecha_si_falta(enviados, monkeypatch):
+def test_sin_api_key_no_bloquea_si_falta_la_fecha(enviados, monkeypatch):
+    """Principio 3 de v2: nunca bloquear. Se guarda sin fecha y se ofrece corregir."""
     monkeypatch.setattr(config, "GEMINI_API_KEY", "")
-    handlers.handle_update(mensaje("colgar el cuadro"))
-    assert db.get_pending(CHAT)["kind"] == "fecha"
+
+    handlers.handle_update(mensaje("hay que llamar al plomero"))
+
+    guardada = db.pendientes(CHAT, tipo="casa")[0]
+    assert guardada["due_date"] is None
+    assert db.get_pending(CHAT) is None, "no queda esperando nada"
+    assert "Corregir" in str(enviados)
 
 
 def test_recurrente_sin_llm(enviados, monkeypatch):
@@ -235,8 +242,8 @@ def test_si_gemini_falla_la_tarea_no_se_pierde(enviados, monkeypatch):
     tarea = db.pendientes(CHAT)[0]
     assert tarea["texto"] == "limpiar la heladera"
     assert tarea["categoria"] == "limpieza"
-    # Acá sí avisa, porque el usuario espera que piense.
-    assert "a mano" in textos(enviados)[0]
+    # En v2 no se disculpa: la tarea quedó bien guardada y se puede corregir tocando.
+    assert "Limpiar la heladera" in textos(enviados)[0]
 
 
 def test_charla_sin_llm_no_crea_tareas(enviados, monkeypatch):

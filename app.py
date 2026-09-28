@@ -8,7 +8,7 @@ from flask import Flask, jsonify, request
 
 from notita import config, db
 from notita.handlers import handle_update
-from notita.reminders import correr_rutina_diaria
+from notita.parte import correr
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 log = logging.getLogger("notita.app")
@@ -51,8 +51,12 @@ def webhook():
 
 
 @app.route("/cron/recordatorios", methods=["GET", "POST"])
+@app.route("/cron/parte", methods=["GET", "POST"])
 def cron_recordatorios():
-    """Dispara la rutina de las 20:00. La llama un cron externo (cron-job.org).
+    """Lo que corre el cron cada 15 minutos: el parte si toca, y la limpieza.
+
+    La ruta vieja (/cron/recordatorios) sigue andando para no tener que tocar el
+    cronjob que ya está configurado.
 
     La clave va en el header y no en la URL a propósito: las query strings
     quedan escritas en el access log del servidor.
@@ -64,7 +68,7 @@ def cron_recordatorios():
     if not hmac.compare_digest(recibido, config.CRON_SECRET.encode()):
         log.warning("Cron con clave invalida")
         return jsonify(ok=False), 403
-    return jsonify(ok=True, resultado=correr_rutina_diaria())
+    return jsonify(ok=True, resultado=correr())
 
 
 if __name__ == "__main__":  # desarrollo local

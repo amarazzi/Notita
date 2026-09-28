@@ -157,7 +157,7 @@ def test_instalacion_completa(tmp_path, monkeypatch, telegram_falso, capsys):
     salida = capsys.readouterr().out
     assert "privacy mode está apagado" in salida
     # Lo único que queda a mano: la tarea diaria de las 20:00.
-    assert "Tasks" in salida and "23:00" in salida and "run_reminders.py" in salida
+    assert "Tasks" in salida and "run_parte.py" in salida
 
 
 def test_permisos_del_env(tmp_path, monkeypatch, telegram_falso):

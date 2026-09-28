@@ -1,397 +1,197 @@
-"""Armado de textos y teclados. Todo pensado para leerse en el celular."""
+"""Cómo se ve todo lo que dice Notita.
+
+Regla de v2: acá no se decide nada, sólo se da forma. Y toda fecha se muestra
+SIEMPRE con día de la semana y número: «mañana, lun 28» en vez de «mañana» a secas,
+que en un grupo que se lee a cualquier hora es ambiguo.
+"""
 from __future__ import annotations
 
 import sqlite3
 from datetime import date
 
-from . import config, db
+from . import config
 from .dates import (
     DIAS_NOMBRE,
+    MESES_NOMBRE,
     Recurrencia,
-    cuando_se_entrega,
     de_iso,
-    domingo_de_la_semana,
-    es_este_finde,
-    formato_humano,
     hoy,
     texto_recurrencia,
 )
 from .telegram import escapar, mencion
 
+DIAS_CORTO = ["lun", "mar", "mié", "jue", "vie", "sáb", "dom"]
+
+
 # --------------------------------------------------------------------------
-# Teclados
+# Fechas
 # --------------------------------------------------------------------------
 
-def _boton_super(row) -> str:
-    """El texto del botón: como se muestra en las listas (los botones no llevan HTML)."""
+def dia_corto(d: date, con_mes: bool = False) -> str:
+    """«lun 28» o «lun 28/9»."""
+    base = f"{DIAS_CORTO[d.weekday()]} {d.day}"
+    return f"{base}/{d.month}" if con_mes else base
+
+
+def dia_largo(d: date) -> str:
+    """«domingo 27/9», para el encabezado del tablero."""
+    return f"{DIAS_NOMBRE[d.weekday()]} {d.day}/{d.month}"
+
+
+def cuando(d: date | None, hora: str | None = None, ref: date | None = None) -> str:
+    """La fecha como la dice Notita: siempre con día de la semana y número.
+
+    «hoy, dom 27» · «mañana, lun 28» · «jue 1/10» · «algún día»
+    """
+    if d is None:
+        return "algún día"
+    ref = ref or hoy()
+    dias = (d - ref).days
+    if dias == 0:
+        texto = f"hoy, {dia_corto(d)}"
+    elif dias == 1:
+        texto = f"mañana, {dia_corto(d)}"
+    elif dias == -1:
+        texto = f"ayer, {dia_corto(d)}"
+    elif 0 < dias <= 6:
+        texto = dia_corto(d, con_mes=d.month != ref.month)
+    elif dias < 0:
+        texto = f"venció el {dia_corto(d, con_mes=True)}"
+    else:
+        texto = dia_corto(d, con_mes=True)
+    return f"{texto} {hora}" if hora else texto
+
+
+def fecha_larga(d: date) -> str:
+    return f"{DIAS_NOMBRE[d.weekday()]} {d.day} de {MESES_NOMBRE[d.month - 1]}"
+
+
+# --------------------------------------------------------------------------
+# Ítems
+# --------------------------------------------------------------------------
+
+def titulo(row: sqlite3.Row) -> str:
+    """El título limpio, con mayúscula inicial. Sin escapar: para botones."""
     t = " ".join((row["texto"] or "").split())
-    return (t[:1].upper() + t[1:])[:40]
-
-def teclado_recordatorio(task_id: int, insistente: bool = False) -> list:
-    filas = [[
-        {"text": "✅ Hecho", "callback_data": f"h:{task_id}"},
-        {"text": "⏰ Posponer", "callback_data": f"p:{task_id}"},
-        {"text": "🗑️ Borrar", "callback_data": f"b:{task_id}"},
-    ]]
-    if insistente:
-        filas.append([{"text": "🙈 La borro y listo", "callback_data": f"b:{task_id}"}])
-    return filas
+    return t[:1].upper() + t[1:]
 
 
-def teclado_vencidas_juntas() -> list:
-    return [
-        [{"text": "⏰ Patearlas una semana", "callback_data": "vg:s"}],
-        [{"text": "📋 Verlas de a una", "callback_data": "vg:u"}],
-    ]
+def titulo_html(row: sqlite3.Row) -> str:
+    return escapar(titulo(row))
 
 
-def render_vencidas_juntas(rows, ref: date) -> str:
-    """Las que hace noches que nadie toca, en un solo mensaje en vez de N."""
-    lineas = [linea_tarea(r, ref) for r in rows[:8]]
-    if len(rows) > 8:
-        lineas.append(f"<i>…y {len(rows) - 8} más</i>")
-    return (f"😅 Hace varios días que pregunto por estas <b>{len(rows)}</b>:\n"
-            + "\n".join(lineas)
-            + "\n\n¿Las hacemos, las pateamos, o las borramos de una vez?")
+def recortar(texto: str, largo: int) -> str:
+    """Corta en un límite de palabra y agrega «…»."""
+    if len(texto) <= largo:
+        return texto
+    corte = texto[:largo - 1]
+    if " " in corte[largo // 2:]:
+        corte = corte[:corte.rstrip().rfind(" ")]
+    return corte.rstrip(" ,.;:") + "…"
 
-
-def teclado_posponer(task_id: int) -> list:
-    return [
-        [
-            {"text": "Mañana", "callback_data": f"p:{task_id}:m"},
-            {"text": "Finde", "callback_data": f"p:{task_id}:f"},
-        ],
-        [
-            {"text": "Semana que viene", "callback_data": f"p:{task_id}:s"},
-            {"text": "Elegir fecha", "callback_data": f"p:{task_id}:o"},
-        ],
-    ]
-
-
-def teclado_para_cuando(task_id: int) -> list:
-    return [
-        [
-            {"text": "Hoy", "callback_data": f"f:{task_id}:h"},
-            {"text": "Mañana", "callback_data": f"f:{task_id}:m"},
-        ],
-        [
-            {"text": "Esta semana", "callback_data": f"f:{task_id}:e"},
-            {"text": "La que viene", "callback_data": f"f:{task_id}:v"},
-        ],
-        [
-            {"text": "Algún día", "callback_data": f"f:{task_id}:a"},
-            {"text": "Otra fecha", "callback_data": f"f:{task_id}:o"},
-        ],
-    ]
-
-
-def teclado_super(rows) -> list:
-    filas = [[{"text": f"🛒 {_boton_super(r)}", "callback_data": f"c:{r['id']}"}] for r in rows]
-    if len(rows) > 1:   # volver del súper y tocar 15 botones es un castigo
-        filas.append([{"text": "✅ Compramos todo", "callback_data": "ct"}])
-    return filas
-
-
-# --------------------------------------------------------------------------
-# Piezas de texto
-# --------------------------------------------------------------------------
 
 def emoji(row: sqlite3.Row) -> str:
-    if row["tipo"] == "recado":
-        return "💌"
-    if row["tipo"] != "compras" and row["categoria"] == "compras":
-        return config.CATEGORIA_EMOJI["otros"]  # no es del súper: que no lleve carrito
+    if row["tipo"] == "compras":
+        return "🛒"
     return config.CATEGORIA_EMOJI.get(row["categoria"], "📌")
 
 
-def render_recado(row: sqlite3.Row) -> str:
-    """Lo que se manda al grupo el día que toca entregarlo."""
-    de = config.NOMBRES.get(row["created_by"], "alguien")
-    para = mencion(row["responsable"])
-    if row["created_by"] == row["responsable"]:
-        # Se lo dejó a sí mismo: no es un recado de nadie, es un recordatorio.
-        return f"🔔 {para}, te recuerdo:\n«{texto_tarea(row)}»"
-    return f"💌 {para}, {escapar(de)} te manda a decir:\n«{texto_tarea(row)}»"
-
-
-def sufijo_responsable(row: sqlite3.Row, con_mencion: bool = False) -> str:
-    r = row["responsable"]
-    if r == "ninguno":
-        return ""
-    if r == "ambos":
-        return f" · {config.NOMBRES['ambos']}"
-    # .get por si la tarea quedó a nombre de alguien que ya no está en la config.
-    return f" · {mencion(r) if con_mencion else escapar(config.NOMBRES.get(r, r))}"
-
-
-def texto_tarea(row: sqlite3.Row) -> str:
-    """Texto de la tarea limpio para mostrar: sin saltos de línea raros y con mayúscula."""
-    t = " ".join((row["texto"] or "").split())
-    return escapar(t[:1].upper() + t[1:])
-
-
 def recurrencia_de(row: sqlite3.Row) -> Recurrencia | None:
-    """Reconstruye la recurrencia guardada, para poder contarla en palabras."""
     if not row["recur_kind"]:
         return None
     return Recurrencia(kind=row["recur_kind"], interval=row["recur_interval"] or 1,
                        weekday=row["recur_weekday"], monthday=row["recur_monthday"])
 
 
-def hora_de(row: sqlite3.Row) -> str | None:
-    """La hora de la tarea, si la dijeron. Tolera bases viejas sin la columna."""
-    try:
-        return row["due_hora"] or None
-    except (IndexError, KeyError):
-        return None
+def sufijo_responsable(row: sqlite3.Row, con_mencion: bool = False) -> str:
+    r = row["responsable"]
+    if r in ("ninguno", ""):
+        return ""
+    if r == "ambos":
+        return config.NOMBRES["ambos"]
+    return mencion(r) if con_mencion else escapar(config.NOMBRES.get(r, r))
 
 
-def cuando_humano(d: date | None, hora: str | None, ref: date) -> str:
-    """«mañana», «jue 1/10 18:00», «hoy 18:30»."""
-    if d is None:
-        return "algún día"
-    texto = formato_humano(d, ref)
-    return f"{texto} {hora}" if hora else texto
-
-
-def texto_del_finde(d: date, ref: date) -> str:
-    """Para cuando el mensaje dijo «el finde»: se aclara, sin perder el día exacto."""
-    if es_este_finde(d, ref):
-        return f"este finde · {_dia_corto(d, con_mes=True)}"
-    return f"el finde · {_dia_corto(d, con_mes=True)}"
-
-
-def linea_tarea(row: sqlite3.Row, ref: date, mostrar_fecha: bool = True,
-                fecha_txt: str | None = None) -> str:
-    """Una tarea por línea: emoji de categoría, texto, y los detalles detrás de «·»."""
-    partes = [f"{emoji(row)} {texto_tarea(row)}"]
-    d = de_iso(row["due_date"])
-    hora = hora_de(row)
-    if mostrar_fecha and d:
-        partes.append(f"<i>{fecha_txt or cuando_humano(d, hora, ref)}</i>")
-    elif hora:
-        # En los listados agrupados por día la fecha no se repite, pero la hora sí importa.
-        partes.append(f"<i>{hora}</i>")
-    resp = sufijo_responsable(row).removeprefix(" · ")
+def linea(row: sqlite3.Row, ref: date | None = None, con_fecha: bool = True) -> str:
+    """Una línea de ítem: emoji, título, y los detalles detrás de «·»."""
+    ref = ref or hoy()
+    partes = [f"{emoji(row)} {titulo_html(row)}"]
+    if con_fecha:
+        partes.append(f"<i>{'al súper' if row['tipo'] == 'compras' else cuando(de_iso(row['due_date']), row['due_hora'], ref)}</i>")
+    elif row["due_hora"]:
+        partes.append(f"<i>🕕 {row['due_hora']}</i>")
+    resp = sufijo_responsable(row)
     if resp:
         partes.append(resp)
-    linea = " · ".join(partes)
-    if row["recur_kind"]:
-        linea += f" 🔁 {texto_recurrencia(recurrencia_de(row))}".rstrip()
-    if row["postpone_count"] >= 3:
-        linea += f" 😅×{row['postpone_count']}"
-    return linea
+    texto = " · ".join(partes)
+    rec = texto_recurrencia(recurrencia_de(row))
+    if rec:
+        texto += f" 🔁 {rec}"
+    return texto
 
 
-def confirmacion(row: sqlite3.Row, ref: date, fecha_txt: str | None = None) -> str:
-    """Misma línea que en /tareas, pero siempre dice para cuándo (o que va al súper)."""
-    if row["tipo"] == "recado":
-        a_quien = config.NOMBRES.get(row["responsable"], row["responsable"])
-        d = de_iso(row["due_date"])
-        hora = hora_de(row)
-        # Se anuncia el momento en que va a salir DE VERDAD, que depende de cada cuánto
-        # corre la rutina: prometer «22:07» y entregarlo a las 20:00 del día siguiente
-        # es peor que decir «22:10» desde el principio.
-        if hora:
-            fecha_real, hora_real = cuando_se_entrega(d, hora, ref)
-            cuando = cuando_humano(fecha_real, hora_real, ref)
-        elif d == ref:
-            cuando = "ahora mismo"
-        else:
-            cuando = f"{formato_humano(d, ref)} a las {config.HORA_RUTINA}"
-        propio = row["created_by"] == row["responsable"]
-        icono, destino = ("🔔", "Te recuerdo") if propio else ("💌", f"A {escapar(a_quien)}")
-        return (f"{icono} {destino} · <i>{cuando}</i>\n"
-                f"   «{texto_tarea(row)}»")
-    cuando = ("al súper" if row["tipo"] == "compras"
-              else fecha_txt or cuando_humano(de_iso(row["due_date"]), hora_de(row), ref))
-    partes = [f"{emoji(row)} {texto_tarea(row)}", f"<i>{cuando}</i>"]
-    resp = sufijo_responsable(row).removeprefix(" · ")
-    if resp:
-        partes.append(resp)
-    linea = " · ".join(partes)
-    if row["recur_kind"]:
-        linea += f" 🔁 {texto_recurrencia(recurrencia_de(row))}".rstrip()
-    return linea
-
-
-# --------------------------------------------------------------------------
-# Listados
-# --------------------------------------------------------------------------
-
-DIAS_CORTO = ["lun", "mar", "mié", "jue", "vie", "sáb", "dom"]
-
-
-def _dia_corto(d: date, con_mes: bool = False) -> str:
-    base = f"{DIAS_CORTO[d.weekday()].capitalize()} {d.day}"
-    return f"{base}/{d.month}" if con_mes else base
-
-
-def _por_dia(rows, con_mes: bool, ref: date) -> list[str]:
-    """Agrupa tareas bajo un subtítulo por día (ej. «Dom 27»)."""
-    lineas: list[str] = []
-    dia_actual = None
-    for r in rows:
-        d = de_iso(r["due_date"])
-        if d != dia_actual:
-            if dia_actual is not None:
-                lineas.append("")  # un renglón vacío entre días
-            dia_actual = d
-            lineas.append(f"<b>{_dia_corto(d, con_mes)}</b>")
-        lineas.append(linea_tarea(r, ref, mostrar_fecha=False))
-    return lineas
-
-
-def render_todo(chat_id: int, categoria: str | None = None, ref: date | None = None) -> str:
-    """Lista de pendientes pensada para el celular.
-
-    Agrupa por horizonte de tiempo (como Todoist o Things): primero lo urgente
-    con un subtítulo por día, y lo lejano o sin fecha compacto, una línea por tarea.
-    """
-    from datetime import timedelta
-
+def detalle(row: sqlite3.Row, ref: date | None = None) -> str:
+    """El encabezado del menú «⋯»: el título entero y sus datos."""
     ref = ref or hoy()
-    casa = db.pendientes(chat_id, tipo="casa", categoria=categoria)
-    compras = db.pendientes(chat_id, tipo="compras") if not categoria or categoria == "compras" else []
-
-    if not casa and not compras:
-        if categoria:
-            return f"No hay nada pendiente de <b>{escapar(categoria)}</b> ✨"
-        return "No hay nada pendiente. Qué lujo ✨"
-
-    def fecha(r):
-        return de_iso(r["due_date"])
-
-    manana = ref + timedelta(days=1)
-    # La semana es de lunes a domingo, como en el resto de Notita. Antes esto eran
-    # "los próximos 6 días", así que un sábado el jueves siguiente caía en «esta semana».
-    domingo = domingo_de_la_semana(ref)
-    domingo_prox = domingo + timedelta(days=7)
-    vencidas = [r for r in casa if fecha(r) and fecha(r) < ref]
-    de_hoy = [r for r in casa if fecha(r) == ref]
-    de_manana = [r for r in casa if fecha(r) == manana]
-    semana = [r for r in casa if fecha(r) and manana < fecha(r) <= domingo]
-    semana_prox = [r for r in casa if fecha(r) and domingo < fecha(r) <= domingo_prox]
-    despues = [r for r in casa if fecha(r) and fecha(r) > domingo_prox]
-    algun_dia = [r for r in casa if not fecha(r)]
-
-    titulo = "<b>Pendientes</b>" + (f" · {escapar(categoria)}" if categoria else "")
-    bloques: list[str] = [f"{titulo} · {len(casa)}"]
-
-    if vencidas:
-        bloques.append("⚠️ <b>VENCIDAS</b>\n" + "\n".join(linea_tarea(r, ref) for r in vencidas))
-    if de_hoy:
-        bloques.append(f"<b>HOY</b> · {_dia_corto(ref)}\n"
-                       + "\n".join(linea_tarea(r, ref, mostrar_fecha=False) for r in de_hoy))
-    if de_manana:
-        bloques.append(f"<b>MAÑANA</b> · {_dia_corto(manana)}\n"
-                       + "\n".join(linea_tarea(r, ref, mostrar_fecha=False) for r in de_manana))
-    if semana:
-        bloques.append("<b>ESTA SEMANA</b>\n\n" + "\n".join(_por_dia(semana, False, ref)))
-    if semana_prox:
-        bloques.append("<b>LA SEMANA QUE VIENE</b>\n\n"
-                       + "\n".join(_por_dia(semana_prox, True, ref)))
-    if despues:
-        # Lo lejano va compacto: una línea por tarea con la fecha al lado, sin subtítulos.
-        bloques.append("<b>MÁS ADELANTE</b>\n" + "\n".join(
-            linea_tarea(r, ref, fecha_txt=_dia_corto(fecha(r), True).lower()) for r in despues))
-    if algun_dia:
-        bloques.append("<b>ALGÚN DÍA</b>\n" + "\n".join(linea_tarea(r, ref) for r in algun_dia))
-    if compras:
-        # Con mayúscula como en el resto de las listas: antes acá salían en minúscula.
-        items = ", ".join(texto_tarea(r) for r in compras)
-        bloques.append(f"<b>SÚPER</b> · {len(compras)}\n{items}\n<i>Tocá /super para tacharlos</i>")
-
-    return "\n\n".join(bloques)
-
-
-def render_algun_dia(chat_id: int, ref: date | None = None) -> str:
-    ref = ref or hoy()
-    rows = db.sin_fecha(chat_id)
-    if not rows:
-        return "No hay nada en «algún día». Estamos al día 🌤️"
-    return "🌥️ <b>Algún día</b>\n" + "\n".join(linea_tarea(r, ref) for r in rows)
-
-
-def render_super(chat_id: int) -> tuple[str, list]:
-    rows = db.pendientes(chat_id, tipo="compras")
-    if not rows:
-        return "La lista del super está vacía 🛒", []
-    texto = "🛒 <b>Lista del super</b>\n" + "\n".join(f"• {texto_tarea(r)}" for r in rows)
-    texto += "\n\n<i>Tocá lo que ya compraste.</i>"
-    return texto, teclado_super(rows)
-
-
-def render_resumen_semanal(chat_id: int, ref: date) -> str:
-    """Resumen del domingo: la semana que arranca mañana (lunes a domingo)."""
-    from datetime import timedelta
-
-    inicio = ref + timedelta(days=1)
-    fin = inicio + timedelta(days=6)
-    rows = db.vencen_entre(chat_id, inicio, fin)
-
-    bloques = [f"☕ <b>Resumen de la semana</b> ({inicio.day}/{inicio.month} al {fin.day}/{fin.month})"]
-    if rows:
-        dia_actual = None
-        lineas = []
-        for r in rows:
-            d = de_iso(r["due_date"])
-            if d != dia_actual:
-                dia_actual = d
-                lineas.append(f"\n<b>{DIAS_NOMBRE[d.weekday()].capitalize()} {d.day}/{d.month}</b>")
-            lineas.append("  " + linea_tarea(r, ref, mostrar_fecha=False))
-        bloques.append("\n".join(lineas))
+    datos = []
+    if row["tipo"] == "compras":
+        datos.append("al súper")
     else:
-        bloques.append("\nNo hay nada agendado para esta semana 🎉")
+        datos.append(cuando(de_iso(row["due_date"]), row["due_hora"], ref))
+    resp = sufijo_responsable(row)
+    datos.append(resp if resp else "sin responsable")
+    rec = texto_recurrencia(recurrencia_de(row))
+    datos.append(f"🔁 {rec}" if rec else "🔁 no")
+    return f"{emoji(row)} <b>{titulo_html(row)}</b>\n<i>{' · '.join(datos)}</i>"
 
-    vencidas = [r for r in db.vencen_hasta(chat_id, ref) if de_iso(r["due_date"]) < ref]
-    pendientes_algun_dia = db.sin_fecha(chat_id)
-    compras = db.pendientes(chat_id, tipo="compras")
-    extras = []
-    if vencidas:
-        extras.append(f"⚠️ {len(vencidas)} vencida{'s' if len(vencidas) > 1 else ''} sin hacer")
-    if compras:
-        # Sin esto la lista del súper es invisible: no tiene fecha ni recordatorio,
-        # así que si nadie escribe /super se pudre sin que nadie se entere.
-        extras.append(f"🛒 {len(compras)} en el súper")
-    if pendientes_algun_dia:
-        extras.append(f"🌥️ {len(pendientes_algun_dia)} para «algún día»")
-    if extras:
-        bloques.append("\n" + " · ".join(extras))
-    return "\n".join(bloques)
+
+AYUDA = """Soy <b>Notita</b> 🧲 y así nos entendemos:
+
+<b>Para anotar, escribime normal</b>
+• «hay que limpiar la heladera y falta leche» → lo separo solo
+• «llevar a Milo al veterinario el jueves a las 18» → con fecha, hora y responsable
+• «pagar el ABL todos los 10» → se repite sola 🔁
+
+<b>Para manejar lo anotado, tocá</b>
+El <b>tablero</b> está fijado arriba del grupo. Cada tarea tiene ✅ para darla por
+hecha y <b>⋯</b> para todo lo demás: cambiarle el día, quién la hace, el nombre,
+mandarla al súper o borrarla.
+
+Si me pedís algo por texto («ya compré la leche», «pasá lo del horno al domingo»),
+te lo propongo con botones y vos confirmás. Nunca toco nada sin que alguien toque.
+
+<b>El parte</b>
+Todos los días a las {hora} te cuento qué hay para mañana y qué quedó pendiente.
+Es el único mensaje que suena.
+
+<b>Lo que NO hago</b>
+No aviso a horas exactas: para eso, el botón 📅 <b>Agregar al calendario</b> que
+aparece cuando algo tiene hora. Y para cambiarle el ritmo a una tarea que se repite,
+borrala y anotala de nuevo.
+
+Comandos: /tablero · /super · /ayuda · /parte"""
 
 
 def ayuda() -> str:
-    """Se arma al vuelo para que la hora que dice sea la que está configurada."""
     return AYUDA.replace("{hora}", config.HORA_RUTINA)
 
 
-AYUDA = """Hola, soy <b>Notita</b> 🧲
+BIENVENIDA = """🧲 <b>Notita cambió</b>
 
-<b>Para anotar</b>, escribime así nomás:
-• «hay que limpiar la heladera y comprar focos» → lo separo en dos
-• «llamar al veterinario el jueves a las 18» → guardo el día y la hora
-• «falta leche» → va derecho a la lista del super
-• «regar las plantas cada 3 días» → se repite sola 🔁
+Ahora <b>hablando se anota y tocando se gestiona</b>:
 
-<b>Para pedirme cosas</b>, también hablando normal:
-• «¿qué hay que hacer?» o «mostrame las de limpieza»
-• «ya compré la leche y la lavandina» → tacho las dos
-• «borrá la del plomero» · «borrá todo lo del súper»
-• «pasá lo del horno para el domingo» → la muevo de día
-• «lo del veterinario lo hago yo» → le cambio el responsable
-• «cambiá "regar" por "regar las plantas del balcón"» → le cambio el nombre
+• Escribime normal para anotar cosas, igual que siempre.
+• Abajo tenés el <b>tablero fijado</b>: ahí está todo, con ✅ y ⋯ en cada tarea.
+• Si me pedís un cambio por texto, te lo propongo con botones y vos confirmás.
+• Todos los días a las {hora} mando el parte de mañana. <b>Es lo único que suena.</b>
+• Ya no aviso a horas exactas: cuando algo tiene hora te doy un botón para pasarlo
+  al calendario."""
 
-<b>Para mandar un recado</b> 💌
-• «avisale a Axel que llego en 10» → se lo digo en el momento
-• «avisale a Axel en 1 hora que saque la carne» → se lo digo en una hora
-• «decile a Axel mañana que compre pan» → se lo digo mañana a las {hora}
 
-Si no me decís cuándo es algo, te pregunto.
-A las {hora} del día que vence te recuerdo, con ✅ Hecho, ⏰ Posponer y 🗑️ Borrar.
-Si la tarea tiene hora, aviso a esa hora.
-Los domingos a las {hora} te paso el resumen de la semana.
-
-Si preferís los comandos: /todo, /todo limpieza, /algundia, /super, /ayuda.
-
-Categorías: limpieza, arreglos, tramites, pagos, mascotas, compras, otros."""
+def bienvenida(recados_descartados: int = 0) -> str:
+    texto = BIENVENIDA.replace("{hora}", config.HORA_RUTINA)
+    if recados_descartados:
+        cuantos = ("un recado que estaba" if recados_descartados == 1
+                   else f"{recados_descartados} recados que estaban")
+        texto += f"\n\n<i>Se me quedó {cuantos} esperando para más tarde: eso ya no existe.</i>"
+    return texto

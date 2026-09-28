@@ -283,7 +283,7 @@ def revisar_base() -> None:
 
 
 def revisar_recordatorios() -> None:
-    titulo("La rutina de las 20:00")
+    titulo(f"El parte de las {config.HORA_RUTINA}")
     _revisar_si_la_rutina_corre()
     if config.CRON_SECRET:
         ok("CRON_SECRET configurado: /cron/recordatorios está activa (opción B)")
@@ -292,49 +292,69 @@ def revisar_recordatorios() -> None:
     else:
         ok("/cron/recordatorios apagada: usás la tarea diaria de PythonAnywhere (opción A)")
         print(f"      \033[2m→ Tasks → Daily task → {config.hora_rutina_en_utc()} UTC → "
-              f"python3.13 {config.BASE_DIR}/run_reminders.py\033[0m")
-    print("      \033[2m→ para probar ahora: python3 run_reminders.py --forzar\033[0m")
+              f"python3.13 {config.BASE_DIR}/run_parte.py\033[0m")
+    print("      \033[2m→ para probar ahora: python3 run_parte.py --forzar\033[0m")
 
 
 def _revisar_si_la_rutina_corre() -> None:
     """Que la ruta esté activa no significa que alguien la esté llamando.
 
     Es el modo de falla más silencioso que tiene Notita: si el cron no existe, no
-    sale ningún recordatorio y nadie se entera. Se puede saber porque cada
-    recordatorio enviado deja su marca en la base.
+    sale el parte y nadie se entera. Cada parte enviado queda anotado en la base.
     """
-    from notita.dates import de_iso, hoy
+    from notita.dates import ahora, hoy
 
     try:
-        with db.conn() as c:
-            fila = c.execute(
-                """SELECT MAX(last_reminded_on) ultima,
-                          SUM(estado = 'pendiente' AND tipo = 'casa'
-                              AND due_date IS NOT NULL AND due_date <= ?) debian
-                   FROM tasks""", (hoy().isoformat(),)).fetchone()
+        ultimo = db.ultimo_parte()
     except sqlite3.Error:
         return
-    ultima, debian = de_iso(fila["ultima"]), fila["debian"] or 0
-
-    if ultima is None:
-        if debian:
-            mal(f"no hay registro de que la rutina haya corrido nunca, y hay {debian} "
-                "tarea(s) que ya deberían haberse recordado",
-                "¿está creada la tarea diaria (o el cronjob externo)? Probá a mano: "
-                f"python3 {config.BASE_DIR}/run_reminders.py --forzar")
-        else:
-            ok("la rutina todavía no tuvo nada que recordar")
+    if ultimo is None:
+        aviso("todavía no salió ningún parte",
+              "si ya pasaron las " + config.HORA_RUTINA + ", revisá que el cron exista")
         return
-
-    dias = (hoy() - ultima).days
+    dias = (hoy() - ultimo).days
     if dias <= 1:
-        ok(f"la rutina corrió hace poco (última vez: {ultima.strftime('%d/%m')})")
-    elif debian:
-        mal(f"la rutina no manda nada desde el {ultima.strftime('%d/%m')} "
-            f"({dias} días) y hay {debian} tarea(s) esperando",
-            "revisá que el cron siga vivo")
+        ok(f"el último parte salió el {ultimo.strftime('%d/%m')}")
     else:
-        ok(f"última corrida: {ultima.strftime('%d/%m')} (no hubo nada que recordar después)")
+        mal(f"el último parte salió el {ultimo.strftime('%d/%m')} ({dias} días)",
+            "revisá que el cronjob siga vivo")
+    del ahora
+
+
+def revisar_tablero() -> None:
+    """El tablero fijado es la cara de v2: si no está, hay que saberlo."""
+    titulo("El tablero")
+    if not config.ALLOWED_CHAT_ID:
+        return
+    guardado = db.tablero_actual(config.ALLOWED_CHAT_ID)
+    if not guardado or not guardado.get("message_id"):
+        aviso("todavía no hay tablero publicado",
+              "escribí «tablero» en el grupo (o /tablero)")
+        return
+    bien, chat = tg("getChat", chat_id=config.ALLOWED_CHAT_ID)
+    fijado = (chat or {}).get("pinned_message") or {} if bien else {}
+    if fijado.get("message_id") == guardado["message_id"]:
+        ok(f"el tablero está fijado (mensaje {guardado['message_id']})")
+    elif fijado:
+        aviso("el mensaje fijado no es el tablero",
+              "escribí «tablero» para volver a publicarlo y fijarlo")
+    else:
+        aviso("no hay ningún mensaje fijado en el grupo",
+              "hacé admin al bot con permiso de fijar, y escribí «tablero»")
+
+    bien, yo = tg("getChatMember", chat_id=config.ALLOWED_CHAT_ID,
+                  user_id=(_mi_user_id() or 0))
+    if bien and isinstance(yo, dict):
+        if yo.get("status") == "administrator" and yo.get("can_pin_messages"):
+            ok("tiene permiso para fijar mensajes")
+        else:
+            aviso("no es admin con permiso de fijar",
+                  "el tablero funciona igual, pero no queda fijado arriba")
+
+
+def _mi_user_id() -> int | None:
+    bien, yo = tg("getMe")
+    return (yo or {}).get("id") if bien else None
 
 
 def mandar_mensaje_de_prueba() -> None:
@@ -364,6 +384,8 @@ def main() -> None:
     revisar_personas()
     revisar_gemini()
     revisar_base()
+    if yo:
+        revisar_tablero()
     revisar_recordatorios()
     if args.mensaje:
         mandar_mensaje_de_prueba()

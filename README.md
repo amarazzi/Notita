@@ -162,7 +162,7 @@ configuración, **deja lista la web app y la recarga**, y enchufa el webhook.
 (= 20:00 en Argentina) con este comando, cambiando `TU_USUARIO`:
 
 ```
-python3.13 /home/TU_USUARIO/Notita/run_reminders.py
+python3.13 /home/TU_USUARIO/Notita/run_parte.py
 ```
 
 Ya está: escribí en el grupo «hay que limpiar la heladera el lunes».
@@ -318,7 +318,7 @@ y Argentina es UTC−3 todo el año:
 Comando:
 
 ```
-python3.13 /home/USUARIO/Notita/run_reminders.py
+python3.13 /home/USUARIO/Notita/run_parte.py
 ```
 
 Con esta opción **dejá `CRON_SECRET` vacío**: así la ruta `/cron/recordatorios` queda
@@ -487,8 +487,8 @@ algo roto.
 ## Modo prueba (sin esperar a las 20:00)
 
 ```bash
-python3 run_reminders.py --forzar                      # dispara ahora mismo
-python3 run_reminders.py --forzar --fecha 2026-10-04   # simula un domingo (con resumen)
+python3 run_parte.py --forzar                      # dispara ahora mismo
+python3 run_parte.py --forzar --fecha 2026-10-04   # simula un domingo (con resumen)
 ```
 
 También desde el grupo: `/recordatorios`.
@@ -549,7 +549,7 @@ python3 set_webhook.py https://notita.tudominio.com/telegram
 
 # cron de la VM. Si la VM está en la zona de tu casa, poné la hora tal cual;
 # si está en UTC, convertila (el default de Argentina son las 23:00 UTC).
-0 20 * * *  cd /opt/notita && /opt/notita/.venv/bin/python run_reminders.py
+0 20 * * *  cd /opt/notita && /opt/notita/.venv/bin/python run_parte.py
 ```
 
 Acá no hace falta `CRON_SECRET` ni la ruta `/cron/recordatorios`: con cron propio se
@@ -563,7 +563,7 @@ llama directo al script. Y `python3 doctor.py` sirve igual para verificar todo.
 install.py              instalador guiado: escribe el .env y enchufa el webhook
 doctor.py               diagnóstico: qué está mal y cómo se arregla
 app.py                  webhook Flask (lo que sirve PythonAnywhere)
-run_reminders.py        rutina de las 20:00 (cron / scheduler / modo prueba)
+run_parte.py        rutina de las 20:00 (cron / scheduler / modo prueba)
 set_webhook.py          alta, consulta y baja del webhook
 notita/
   config.py             variables de entorno, zona horaria, quiénes viven en la casa

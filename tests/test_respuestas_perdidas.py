@@ -11,11 +11,11 @@ import time
 import pytest
 import requests
 
-from notita import db, handlers, llm, reminders, telegram
+from notita import db, handlers, llm, parte, telegram
 from notita.dates import hoy
 
 from .conftest import CHAT
-from .test_bugs_grupo import item, mensaje, responde, textos
+from .test_v2_captura import item, mensaje, responde, textos
 
 
 # --------------------------------------------------------------------------
@@ -26,8 +26,7 @@ def test_dos_updates_casi_simultaneos_dan_dos_respuestas(enviados, monkeypatch):
     """Lo que pidió el reporte: dos updates encimados → dos respuestas."""
     def lenta(texto, *a, **k):
         time.sleep(0.4)          # la ventana donde entra el segundo mensaje
-        return {"intencion": "anotar", "es_tarea": True,
-                "items": [item(texto[:30], fecha_kind="hoy")]}
+        return {"intencion": "crear", "items": [item(texto[:30], fecha_kind="hoy")]}
 
     monkeypatch.setattr(llm, "interpretar_mensaje", lenta)
     errores = []
@@ -59,9 +58,10 @@ def test_una_accion_larga_con_otro_mensaje_encima(enviados, monkeypatch):
     def lenta(texto, *a, **k):
         time.sleep(0.4)
         if texto.startswith("borrá"):
-            return {"intencion": "borrar", "es_tarea": False, "items": [],
-                    "objetivos": [f"cosa {i}" for i in range(7)]}
-        return {"intencion": "anotar", "es_tarea": True,
+            return {"intencion": "modificar", "accion": "borrar", "items": [],
+                    "referencias": [f"cosa {i}" for i in range(7)],
+                    "conjunto": "ninguno"}
+        return {"intencion": "crear",
                 "items": [item("regar las plantas", fecha_kind="hoy")]}
 
     monkeypatch.setattr(llm, "interpretar_mensaje", lenta)
@@ -104,7 +104,7 @@ def telegram_caido(monkeypatch):
 
 def test_si_no_se_puede_mandar_queda_en_la_cola(telegram_caido, monkeypatch):
     caido, _ = telegram_caido
-    responde(monkeypatch, intencion="anotar", es_tarea=True,
+    responde(monkeypatch, intencion="crear",
              items=[item("sacar la basura", fecha_kind="hoy")])
 
     handlers.handle_update(mensaje("sacar la basura", update_id=1))
@@ -119,13 +119,13 @@ def test_si_no_se_puede_mandar_queda_en_la_cola(telegram_caido, monkeypatch):
 
 def test_la_cola_se_manda_en_el_mensaje_siguiente(telegram_caido, monkeypatch):
     caido, salieron = telegram_caido
-    responde(monkeypatch, intencion="anotar", es_tarea=True,
+    responde(monkeypatch, intencion="crear",
              items=[item("sacar la basura", fecha_kind="hoy")])
     handlers.handle_update(mensaje("sacar la basura", update_id=1))
     assert db.salientes_pendientes()
 
     caido["si"] = False        # volvió el proxy
-    responde(monkeypatch, intencion="charla", es_tarea=False, comentario="dale 🤍")
+    responde(monkeypatch, intencion="charla", comentario="dale 🤍")
     handlers.handle_update(mensaje("gracias", update_id=2))
 
     assert db.salientes_pendientes() == [], "la cola se vació"
@@ -140,7 +140,7 @@ def test_la_cola_tambien_se_manda_en_la_rutina_diaria(telegram_caido, monkeypatc
     assert len(db.salientes_pendientes()) == 1
 
     caido["si"] = False
-    resultado = reminders.correr_rutina_diaria(ref=hoy())
+    resultado = parte.correr(CHAT, forzar=True)
 
     assert resultado["de_la_cola"] == 1
     assert db.salientes_pendientes() == []
@@ -214,102 +214,3 @@ def test_aguanta_un_proxy_caido_varios_segundos(monkeypatch):
 
     assert tg.llamar("sendMessage", chat_id=1, text="hola") == {"message_id": 1}
     assert sum(dormidas) >= 7, "con 3 segundos no alcanzaba: el proxy falla de a ratos"
-
-
-# --------------------------------------------------------------------------
-# Los menores del reporte
-# --------------------------------------------------------------------------
-
-def test_una_sola_compra_se_tacha_en_singular(enviados):
-    db.crear_tarea(CHAT, "café", tipo="compras", categoria="compras")
-
-    handlers.handle_update({"callback_query": {
-        "id": "cb", "data": "ct", "from": {"id": 111},
-        "message": {"message_id": 10, "chat": {"id": CHAT}}}})
-
-    editado = [e["text"] for e in enviados if e["metodo"] == "editMessageText"][-1]
-    assert "Tachada:" in editado
-    assert "las 1" not in editado
-
-
-def test_la_fecha_imposible_muestra_los_botones(enviados, monkeypatch):
-    responde(monkeypatch, intencion="anotar", es_tarea=True,
-             items=[item("pagar la expensa", categoria="pagos",
-                         fecha_kind="fecha_exacta", fecha_day=31, fecha_month=2)])
-
-    handlers.handle_update(mensaje("pagar la expensa el 31 de febrero"))
-
-    envios = [e for e in enviados if e["metodo"] == "sendMessage"]
-    aviso = [e for e in envios if "no existe" in e["text"]][0]
-    etiquetas = [b["text"] for fila in aviso["reply_markup"]["inline_keyboard"]
-                 for b in fila]
-    assert etiquetas[:2] == ["Hoy", "Mañana"]
-    # Y la confirmación no dice «algún día», que era engañoso.
-    assert "algún día" not in envios[0]["text"]
-    assert "¿para cuándo?" in envios[0]["text"]
-
-
-def test_cada_tres_dias_arranca_hoy(enviados, monkeypatch):
-    responde(monkeypatch, intencion="anotar", es_tarea=True,
-             items=[item("regar las plantas", fecha_kind="desconocida",
-                         recur_kind="diaria", recur_interval=3)])
-
-    handlers.handle_update(mensaje("regar las plantas cada 3 días"))
-
-    tarea = db.pendientes(CHAT, tipo="casa")[0]
-    assert tarea["due_date"] == hoy().isoformat(), "antes arrancaba pasado mañana"
-
-
-def test_una_semanal_sin_fecha_arranca_en_su_dia(enviados, monkeypatch):
-    responde(monkeypatch, intencion="anotar", es_tarea=True,
-             items=[item("sacar la basura", fecha_kind="desconocida",
-                         recur_kind="semanal", recur_weekday=2)])   # miércoles
-
-    handlers.handle_update(mensaje("sacar la basura todos los miércoles"))
-
-    from datetime import date
-    tarea = db.pendientes(CHAT, tipo="casa")[0]
-    assert date.fromisoformat(tarea["due_date"]).weekday() == 2
-
-
-def test_el_prompt_le_prohibe_arrancar_con_che():
-    assert "Che" in llm._sistema(), "tiene que estar la prohibición explícita"
-    assert "NUNCA arranques" in llm._sistema()
-
-
-# --------------------------------------------------------------------------
-# La hora que se promete es la que se va a cumplir
-# --------------------------------------------------------------------------
-
-def test_con_una_corrida_diaria_no_promete_la_hora(enviados, monkeypatch):
-    from notita import config, views
-
-    monkeypatch.setattr(config, "CRON_MINUTOS", 0)
-    tid = db.crear_tarea(CHAT, "fijate el horno", tipo="recado", responsable="axel",
-                         due=hoy(), hora="22:07", created_by="barbu")
-
-    texto = views.confirmacion(db.obtener(tid), hoy())
-
-    assert "22:07" not in texto, "no puede prometer una hora a la que no corre"
-    assert "20:00" in texto
-
-
-def test_con_cron_cada_5_minutos_redondea_y_lo_dice(enviados, monkeypatch):
-    from notita import config, views
-
-    monkeypatch.setattr(config, "CRON_MINUTOS", 5)
-    tid = db.crear_tarea(CHAT, "fijate el horno", tipo="recado", responsable="axel",
-                         due=hoy(), hora="22:07", created_by="barbu")
-
-    assert "22:10" in views.confirmacion(db.obtener(tid), hoy())
-
-
-def test_el_redondeo_cruza_la_medianoche(monkeypatch):
-    from datetime import date, timedelta
-
-    from notita import config
-    from notita.dates import cuando_se_entrega
-
-    monkeypatch.setattr(config, "CRON_MINUTOS", 15)
-    hoy_ = date(2026, 9, 26)
-    assert cuando_se_entrega(hoy_, "23:58", hoy_) == (hoy_ + timedelta(days=1), "00:00")
