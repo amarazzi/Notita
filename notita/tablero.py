@@ -52,6 +52,7 @@ def render(chat_id: int, ref: date | None = None) -> tuple[str, list]:
         expandidas.add("vencidas")
 
     numero = 0
+    atajos: list[dict] = []
     for clave, titulo in _TITULOS(ref):
         rows = secciones[clave]
         if not rows:
@@ -71,24 +72,33 @@ def render(chat_id: int, ref: date | None = None) -> tuple[str, list]:
                                "callback_data": cb.armar("sec", clave)}])
         else:
             lineas.append(f"\n{titulo} · {len(rows)} ›")
-            filas.append([{"text": f"{_icono(clave)} {_nombre_corto(clave)} · {len(rows)}",
-                           "callback_data": cb.armar("sec", clave)}])
+            atajos.append({"text": f"{_icono(clave)} {_nombre_corto(clave)} · {len(rows)}",
+                           "callback_data": cb.armar("sec", clave)})
 
     if compras:
         lineas.append(f"\n🛒 <b>SÚPER</b> · {len(compras)} ›")
-        filas.append([{"text": f"🛒 Súper · {len(compras)}", "callback_data": cb.armar("sup")}])
+        atajos.append({"text": f"🛒 Súper · {len(compras)}", "callback_data": cb.armar("sup")})
 
-    # Cada uno en su fila: compartiéndola, Telegram cortaba el deshacer al medio
-    # («↩️ Desha…cómoda…») justo cuando lo que importa es saber QUÉ se deshace.
+    # De a dos por fila: son etiquetas cortas y apiladas quedaban como una pila de
+    # losas grises.
+    for i in range(0, len(atajos), 2):
+        filas.append(atajos[i:i + 2])
+
+    if not casa and not compras:
+        lineas.append("\nNo hay nada pendiente. Qué lujo ✨")
+
+    # El botón del deshacer va corto para que Telegram no lo corte («↩️ Desha…cómoda…»);
+    # QUÉ se deshace se dice en el texto, donde hay lugar de sobra.
+    acciones = []
     if casa:
-        filas.append([{"text": "⋯ Cambiar algo", "callback_data": cb.armar("elegir")}])
+        acciones.append({"text": "⋯ Cambiar algo", "callback_data": cb.armar("elegir")})
     deshacer = db.ultimo_deshacer(chat_id)
     if deshacer:
-        filas.append([{"text": f"↩️ Deshacer{_que_deshace(deshacer)}",
-                       "callback_data": cb.armar("u", deshacer["id"])}])
-
-    if len(lineas) == 1:
-        lineas.append("\nNo hay nada pendiente. Qué lujo ✨")
+        lineas.append(f"\n<i>↩️ Se puede deshacer{_que_deshace(deshacer)}</i>")
+        acciones.append({"text": "↩️ Deshacer",
+                         "callback_data": cb.armar("u", deshacer["id"])})
+    if acciones:
+        filas.append(acciones)
 
     texto = "\n".join(lineas)
     if len(texto) > telegram.LARGO_MAXIMO:
@@ -151,7 +161,7 @@ def _que_deshace(deshacer: dict) -> str:
     if len(deshacer["item_ids"]) != 1:
         return f" ({len(deshacer['item_ids'])})"
     row = db.obtener(deshacer["item_ids"][0])
-    return f": {views.recortar(views.titulo(row), 30)}" if row is not None else ""
+    return f": {views.titulo_html(row)}" if row is not None else ""
 
 
 def _cuantos_botones(secciones: dict, expandidas: set[str]) -> int:

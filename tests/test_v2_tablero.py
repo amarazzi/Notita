@@ -236,7 +236,8 @@ def test_cada_toque_refresca_el_tablero_al_instante(enviados):
 
     ediciones = [e["text"] for e in enviados if e["metodo"] == "editMessageText"]
     assert len(ediciones) == 2, "una por toque, sin posponer nada"
-    assert "Sacar la basura" not in ediciones[0]
+    # Ya no está en la lista (abajo aparece como «se puede deshacer»).
+    assert "1.</b> 📌 Sacar la basura" not in ediciones[0]
     assert "No hay nada pendiente" in ediciones[1]
 
 
@@ -450,9 +451,11 @@ def test_despues_de_tachar_el_tablero_ofrece_deshacer(enviados):
 
     handlers.handle_update(click(cb.armar("ok", tid)))
 
-    _, filas = tablero.render(CHAT)
+    texto, filas = tablero.render(CHAT)
     etiquetas = [b["text"] for fila in filas for b in fila]
-    assert any("↩️ Deshacer: Agarrar sábanas" in e for e in etiquetas)
+    assert "↩️ Deshacer" in etiquetas
+    # Qué se deshace va en el texto: en el botón, Telegram lo cortaba al medio.
+    assert "Se puede deshacer: Agarrar sábanas" in texto
 
 
 def test_el_deshacer_del_tablero_recupera_la_tarea(enviados):
@@ -520,18 +523,45 @@ def test_elegir_y_abrir_el_menu_reemplaza_la_lista(enviados):
     assert [e["metodo"] for e in enviados] == ["answerCallbackQuery", "editMessageText"]
 
 
-def test_el_deshacer_va_en_su_propia_fila(enviados):
-    """Compartiendo fila, Telegram lo cortaba al medio: «↩️ Desha…cómoda…».
+def test_ningun_boton_del_tablero_se_corta(enviados):
+    """Telegram corta al medio lo que no entra: se veía «↩️ Desha…cómoda…».
 
-    Y lo que importa de ese botón es justamente saber QUÉ va a deshacer.
+    Los botones que comparten fila tienen media pantalla, así que van cortos; lo
+    largo (qué se deshace, la hora, el responsable) va en el texto, que tiene lugar.
     """
     tid = db.crear_tarea(CHAT, "comprar cómoda para la habitación", due=hoy())
     db.crear_tarea(CHAT, "otra cosa", due=hoy())
+    db.crear_tarea(CHAT, "leche", tipo="compras", categoria="compras")
     handlers.handle_update(click(cb.armar("ok", tid)))
 
-    _, filas = tablero.render(CHAT)
-    con_deshacer = [f for f in filas if any("Deshacer" in b["text"] for b in f)]
+    texto, filas = tablero.render(CHAT)
 
-    assert len(con_deshacer) == 1
-    assert len(con_deshacer[0]) == 1, "solo en su fila"
-    assert con_deshacer[0][0]["text"] == "↩️ Deshacer: Comprar cómoda para la…"
+    for fila in filas:
+        largo_maximo = 34 if len(fila) == 1 else 20
+        for boton in fila:
+            assert len(boton["text"]) <= largo_maximo, boton["text"]
+    assert "Se puede deshacer: Comprar cómoda para la habitación" in texto
+
+
+def test_los_atajos_van_de_a_dos_por_fila(enviados):
+    """Apilados quedaban como una pila de losas grises."""
+    db.crear_tarea(CHAT, "pintar el balcón")                       # algún día
+    db.crear_tarea(CHAT, "leche", tipo="compras", categoria="compras")
+
+    _, filas = tablero.render(CHAT)
+
+    atajos = [f for f in filas if any("Súper" in b["text"] for b in f)][0]
+    assert len(atajos) == 2
+    assert [b["text"] for b in atajos] == ["📂 Algún día · 1", "🛒 Súper · 1"]
+
+
+def test_el_tablero_vacio_con_algo_para_deshacer(enviados):
+    """El «No hay nada pendiente» desaparecía si quedaba un deshacer vivo."""
+    tid = db.crear_tarea(CHAT, "lo único que había", due=hoy())
+    handlers.handle_update(click(cb.armar("ok", tid)))
+
+    texto, filas = tablero.render(CHAT)
+
+    assert "No hay nada pendiente" in texto
+    assert "Se puede deshacer: Lo único que había" in texto
+    assert [b["text"] for fila in filas for b in fila] == ["↩️ Deshacer"]

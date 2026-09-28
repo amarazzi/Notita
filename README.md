@@ -57,8 +57,7 @@ ESTA SEMANA · 3 ›
 [ ✅ 1. Agarrar sábanas y acolchado ]
 [ ✅ 2. Llevar a Milo al veterinario ]
 [ ✅ 3. Comprar cómoda para la habitación ]
-[ 📂 Esta semana · 3 ]
-[ 🛒 Súper · 4 ]
+[ 📂 Esta semana · 3 ]  [ 🛒 Súper · 4 ]
 [ ⋯ Cambiar algo ]
 ```
 
@@ -541,7 +540,7 @@ También desde el grupo: `/parte`.
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt pytest
 cp .env.example .env
-pytest                 # 426 tests, sin red ni API keys
+pytest                 # 428 tests, sin red ni API keys
 python app.py          # http://localhost:5000
 ```
 
