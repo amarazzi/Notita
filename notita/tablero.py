@@ -15,13 +15,15 @@ from __future__ import annotations
 import logging
 from datetime import date, timedelta
 
-from . import cb, config, db, telegram, views
+from . import cb, db, telegram, views
 from .dates import ahora, de_iso, domingo_de_la_semana, hoy
 
 log = logging.getLogger("notita.tablero")
 
 DEBOUNCE = 3            # segundos entre ediciones
-LARGO_BOTON = 28        # caracteres del título en el botón
+# El botón ✅ comparte la fila con el ⋯, así que se lleva la mitad del ancho: más
+# largo que esto y Telegram lo corta al medio. El título completo va en el texto.
+LARGO_BOTON = 18
 MAX_BOTONES = 80        # antes de colapsar «Mañana» también
 MAX_EN_SECCION = 3      # más que esto y la sección de vencidas va colapsada
 
@@ -42,14 +44,19 @@ def render(chat_id: int, ref: date | None = None) -> tuple[str, list]:
     if len(secciones["vencidas"]) <= MAX_EN_SECCION:
         expandidas.add("vencidas")
 
+    numero = 0
     for clave, titulo in _TITULOS(ref):
         rows = secciones[clave]
         if not rows:
             continue
         if clave in expandidas:
-            lineas.append(f"\n{titulo}")
+            lineas.append(f"\n{titulo} · {len(rows)}")
             for r in rows:
-                filas.extend(_fila_tarea(r, ref))
+                numero += 1
+                # El número es lo que ata cada renglón con su botón.
+                lineas.append(f"<b>{numero}.</b> "
+                              + views.linea(r, ref, con_fecha=clave == "vencidas"))
+                filas.extend(_fila_tarea(r, ref, numero))
         else:
             lineas.append(f"\n{titulo} · {len(rows)} ›")
             filas.append([{"text": f"{_icono(clave)} {_nombre_corto(clave)} · {len(rows)}",
@@ -125,25 +132,23 @@ def _cuantos_botones(secciones: dict, expandidas: set[str]) -> int:
     return sueltos + colapsadas + 1      # +1 por el súper
 
 
-def _fila_tarea(row, ref: date) -> list[list[dict]]:
+def _fila_tarea(row, ref: date, numero: int | None = None) -> list[list[dict]]:
     return [[
-        {"text": f"✅ {etiqueta(row, ref)}", "callback_data": cb.armar("ok", row["id"])},
+        {"text": f"✅ {etiqueta(row, ref, numero=numero)}",
+         "callback_data": cb.armar("ok", row["id"])},
         {"text": "⋯", "callback_data": cb.armar("m", row["id"])},
     ]]
 
 
-def etiqueta(row, ref: date, largo: int = LARGO_BOTON) -> str:
-    """El texto del botón: hora si tiene, título recortado en un límite de palabra."""
-    partes = []
-    if row["due_hora"]:
-        partes.append(f"🕕 {row['due_hora']}")
-    partes.append(views.recortar(views.titulo(row), largo))
-    if row["responsable"] not in ("ninguno", ""):
-        partes.append(config.NOMBRES.get(row["responsable"], row["responsable"]))
-    etiqueta = " · ".join(partes)
-    if row["recur_kind"]:
-        etiqueta += " 🔁"     # el intervalo completo se ve en el menú «⋯»
-    return etiqueta
+def etiqueta(row, ref: date, largo: int = LARGO_BOTON,
+             numero: int | None = None) -> str:
+    """El texto del botón: corto a propósito.
+
+    La hora, el responsable y la recurrencia se ven en el renglón del texto; acá
+    entra el número (para encontrarlo) y el título recortado.
+    """
+    cabeza = f"{numero}. " if numero else ""
+    return cabeza + views.recortar(views.titulo(row), largo)
 
 
 # --------------------------------------------------------------------------
@@ -169,14 +174,28 @@ def actualizar(chat_id: int, forzar: bool = False) -> bool:
             db.guardar_tablero(chat_id, guardado["message_id"])
             return False
         log.warning("No pude editar el tablero: lo publico de nuevo")
-        return publicar(chat_id) is not None
+        # `reusar_si_es_reciente=False` porque venimos de que editar falló: si no,
+        # publicar nos devolvería acá y sería un ida y vuelta infinito.
+        return publicar(chat_id, reusar_si_es_reciente=False) is not None
     db.guardar_tablero(chat_id, guardado["message_id"])
     return True
 
 
-def publicar(chat_id: int, borrar_anterior: bool = True) -> int | None:
+# Si se acaba de publicar, no se publica de nuevo: el primer mensaje del grupo
+# dispara la bienvenida (que publica) y puede ser además un «tablero» (que publica
+# otra vez). Antes quedaban dos pines y un «fijó un mensaje» sin nada, porque el
+# primero se borraba.
+RECIEN_PUBLICADO = 15    # segundos
+
+
+def publicar(chat_id: int, borrar_anterior: bool = True,
+             reusar_si_es_reciente: bool = True) -> int | None:
     """Manda el tablero al final del chat, lo fija y guarda el message_id."""
     anterior = db.tablero_actual(chat_id)
+    if (reusar_si_es_reciente and anterior and anterior.get("message_id")
+            and _recien(anterior)):
+        actualizar(chat_id, forzar=True)
+        return anterior["message_id"]
     texto, teclado = render(chat_id)
     enviado = telegram.enviar(chat_id, texto, teclado, silencioso=True)
     if enviado is None:
@@ -184,6 +203,9 @@ def publicar(chat_id: int, borrar_anterior: bool = True) -> int | None:
         return None
 
     if borrar_anterior and anterior and anterior["message_id"]:
+        # Desfijar primero: si se borra un mensaje fijado, Telegram deja el aviso
+        # «fijó un mensaje» apuntando a la nada.
+        telegram.desfijar(chat_id, anterior["message_id"])
         telegram.borrar(chat_id, anterior["message_id"])
 
     message_id = enviado["message_id"]
@@ -201,17 +223,24 @@ def _fijar(chat_id: int, message_id: int) -> None:
         db.ajuste("aviso_fijar", "1")
 
 
-def _muy_seguido(guardado) -> bool:
+def _recien(guardado) -> bool:
+    return _hace_cuanto(guardado) < RECIEN_PUBLICADO
+
+
+def _hace_cuanto(guardado) -> float:
     from datetime import datetime
 
     editado = guardado.get("editado_en")
     if not editado:
-        return False
+        return 1e9
     try:
-        cuando = datetime.fromisoformat(editado)
+        return (ahora() - datetime.fromisoformat(editado)).total_seconds()
     except ValueError:
-        return False
-    return (ahora() - cuando).total_seconds() < DEBOUNCE
+        return 1e9
+
+
+def _muy_seguido(guardado) -> bool:
+    return _hace_cuanto(guardado) < DEBOUNCE
 
 
 def flushear_si_esta_sucio(chat_id: int) -> bool:

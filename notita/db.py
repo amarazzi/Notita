@@ -800,14 +800,19 @@ def pendiente_igual(chat_id: int, texto: str, tipo: str):
 # Las tablas que guardan cosas por chat. Si Telegram convierte el grupo (pasa al
 # hacer admin a alguien), el chat_id cambia y hay que mudar todo o el bot arranca
 # vacío.
-TABLAS_POR_CHAT = ("tasks", "tablero", "mensajes_temporales", "propuestas",
-                   "deshacer", "pausa", "pending", "salientes")
+TABLAS_POR_CHAT = ("tasks", "propuestas", "deshacer", "pausa", "pending", "salientes")
+
+# Estas guardan message_id, y los message_id son de UN chat: en el nuevo no existen.
+# Se descartan y el tablero se publica de cero.
+TABLAS_DE_MENSAJES = ("tablero", "mensajes_temporales")
 
 
 def migrar_chat(viejo: int, nuevo: int) -> dict[str, int]:
     """Muda todo de un chat_id a otro. Devuelve cuántas filas movió por tabla."""
     movidas = {}
     with conn() as c:
+        for tabla in TABLAS_DE_MENSAJES:
+            c.execute(f"DELETE FROM {tabla} WHERE chat_id = ?", (viejo,))
         for tabla in TABLAS_POR_CHAT:
             try:
                 cur = c.execute(f"UPDATE OR REPLACE {tabla} SET chat_id = ? WHERE chat_id = ?",

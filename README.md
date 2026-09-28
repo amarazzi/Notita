@@ -529,7 +529,7 @@ También desde el grupo: `/parte`.
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt pytest
 cp .env.example .env
-pytest                 # 395 tests, sin red ni API keys
+pytest                 # 411 tests, sin red ni API keys
 python app.py          # http://localhost:5000
 ```
 

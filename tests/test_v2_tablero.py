@@ -312,3 +312,84 @@ def test_un_boton_de_v1_se_reconoce(enviados):
     handlers.handle_update(click("h:123"))
     avisos = [e.get("text") for e in enviados if e["metodo"] == "answerCallbackQuery"]
     assert "versión anterior" in avisos[0]
+
+
+# --------------------------------------------------------------------------
+# Lo que se veía mal en el grupo de verdad
+# --------------------------------------------------------------------------
+
+def test_cada_boton_se_puede_encontrar_en_el_texto(enviados):
+    """Telegram pone TODOS los botones juntos abajo, fuera de las secciones.
+
+    Sin un número que los ate al texto, con «⚠️ VENCIDAS» y «HOY» arriba y cuatro
+    botones abajo no había forma de saber cuál era cuál.
+    """
+    db.crear_tarea(CHAT, "agarrar sábanas y acolchado", due=LUNES - timedelta(days=2))
+    db.crear_tarea(CHAT, "traer llaves Allen", due=LUNES, hora="10:00", responsable="axel")
+    db.crear_tarea(CHAT, "llamar al ejército de salvación para la cama", due=LUNES)
+
+    texto, filas = tablero.render(CHAT, LUNES)
+
+    etiquetas = [b["text"] for fila in filas for b in fila if b["text"].startswith("✅")]
+    assert len(etiquetas) == 3
+    for i, etiqueta in enumerate(etiquetas, start=1):
+        assert etiqueta.startswith(f"✅ {i}. "), etiqueta
+        assert f"<b>{i}.</b>" in texto, f"falta el renglón {i}"
+
+
+def test_las_secciones_expandidas_muestran_sus_tareas(enviados):
+    """Antes el encabezado quedaba solo, sin nada abajo."""
+    db.crear_tarea(CHAT, "agarrar sábanas y acolchado", due=LUNES)
+    texto, _ = tablero.render(CHAT, LUNES)
+
+    assert "Agarrar sábanas y acolchado" in texto
+    assert "<b>HOY</b> · lun 28 · 1" in texto, "con el contador"
+
+
+def test_las_vencidas_dicen_cuando_vencieron(enviados):
+    db.crear_tarea(CHAT, "pagar el ABL", due=LUNES - timedelta(days=2))
+    texto, _ = tablero.render(CHAT, LUNES)
+    assert "venció el sáb 26/9" in texto
+
+
+def test_el_boton_entra_en_media_pantalla(enviados):
+    """El ✅ comparte la fila con el ⋯, así que Telegram lo corta al medio si es largo.
+
+    Se veía «✅ 🕕 10:00 · Tr...laves Allen · Axel».
+    """
+    db.crear_tarea(CHAT, "traer las llaves Allen del departamento",
+                   due=LUNES, hora="10:00", responsable="axel")
+    texto, filas = tablero.render(CHAT, LUNES)
+
+    etiqueta = filas[0][0]["text"]
+    assert len(etiqueta) <= 26, etiqueta
+    # Pero la hora y el responsable no se pierden: van en el texto.
+    assert "🕕 10:00" in texto and "Axel" in texto
+
+
+def test_publicar_dos_veces_seguidas_no_deja_dos_tableros(enviados, casa_nueva):
+    """Pasó de verdad: el primer mensaje disparó la bienvenida (que publica) y era
+
+    además un «tablero» (que publica otra vez). Quedaban dos pines y un «fijó un
+    mensaje» apuntando a nada, porque el primero se borraba.
+    """
+    primero = tablero.publicar(CHAT)
+    enviados.clear()
+
+    segundo = tablero.publicar(CHAT)
+
+    assert segundo == primero, "reusa el que acaba de publicar"
+    assert not [e for e in enviados if e["metodo"] == "sendMessage"]
+    assert not [e for e in enviados if e["metodo"] == "deleteMessage"]
+
+
+def test_al_reemplazar_el_tablero_lo_desfija_antes_de_borrarlo(enviados, casa_nueva):
+    tablero.publicar(CHAT)
+    with db.conn() as c:            # como si hubiera pasado el rato
+        c.execute("UPDATE tablero SET editado_en = '2020-01-01T00:00:00-03:00'")
+    enviados.clear()
+
+    tablero.publicar(CHAT)
+
+    metodos = [e["metodo"] for e in enviados]
+    assert metodos.index("unpinChatMessage") < metodos.index("deleteMessage")

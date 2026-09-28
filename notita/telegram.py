@@ -192,6 +192,10 @@ def fijar(chat_id: int, message_id: int) -> dict | None:
                   disable_notification=True)
 
 
+def desfijar(chat_id: int, message_id: int) -> dict | None:
+    return llamar("unpinChatMessage", chat_id=chat_id, message_id=message_id)
+
+
 def ultimo_error_fue_no_modificado() -> bool:
     """Si el último fallo fue «message is not modified», que no es un problema."""
     return "not modified" in (_ULTIMO_ERROR.get("descripcion") or "")

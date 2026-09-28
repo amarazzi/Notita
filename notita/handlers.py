@@ -49,6 +49,16 @@ FUERA_DE_CASA = (
 
 SIN_TEXTO = "Todavía no entiendo audios ni fotos 🙈 Escribímelo y lo anoto."
 
+# Avisos de Telegram, no mensajes de nadie: «fijó un mensaje», «entró al grupo»…
+# Llegan sin texto, así que antes se les contestaba «no entiendo audios ni fotos».
+SERVICIO = (
+    "pinned_message", "new_chat_members", "left_chat_member", "new_chat_title",
+    "new_chat_photo", "delete_chat_photo", "group_chat_created",
+    "supergroup_chat_created", "channel_chat_created", "message_auto_delete_timer_changed",
+    "migrate_from_chat_id", "video_chat_started", "video_chat_ended",
+    "video_chat_participants_invited", "successful_payment",
+)
+
 # Entre estas horas, "mañana" es el día calendario actual: a las 00:40 nadie piensa
 # en el día siguiente.
 MADRUGADA_HASTA = 5
@@ -111,6 +121,11 @@ def _mensaje(msg: dict) -> None:
 
     _bienvenida_si_hace_falta(chat_id)
 
+    servicio = next((c for c in SERVICIO if c in msg), None)
+    if servicio:
+        _limpiar_aviso_de_servicio(chat_id, msg, servicio)
+        return
+
     if not texto:
         telegram.enviar(chat_id, SIN_TEXTO, silencioso=True)
         return
@@ -125,6 +140,18 @@ def _mensaje(msg: dict) -> None:
         return
 
     _interpretar(chat_id, texto, autor, msg.get("message_id"))
+
+
+def _limpiar_aviso_de_servicio(chat_id: int, msg: dict, tipo: str) -> None:
+    """No se contesta, y si el aviso lo generamos nosotros, se borra del chat.
+
+    Fijar el tablero mete un «Notita fijó un mensaje» en la conversación. Es ruido
+    que pusimos nosotros, así que lo sacamos.
+    """
+    log.info("Aviso de servicio (%s), no contesto", tipo)
+    nuestro = (msg.get("from") or {}).get("is_bot")
+    if tipo == "pinned_message" and nuestro:
+        telegram.borrar(chat_id, msg.get("message_id"))
 
 
 def _respuesta_a_notita(chat_id: int, msg: dict, texto: str, autor: str) -> bool:

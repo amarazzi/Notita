@@ -206,12 +206,11 @@ def test_el_intervalo_se_ve_en_el_tablero_y_en_el_menu(enviados):
 
     tid = db.crear_tarea(CHAT, "regar", due=hoy(),
                          recurrencia=Recurrencia("diaria", interval=3))
-    _, filas = tablero.render(CHAT)
-    etiquetas = " ".join(b["text"] for fila in filas for b in fila)
-    assert "🔁" in etiquetas, "en el botón se ve que se repite"
+    texto, _ = tablero.render(CHAT)
+    assert "🔁 cada 3 días" in texto, "en el renglón del tablero"
 
     handlers.handle_update(click(cb.armar("m", tid)))
-    assert "cada 3 días" in textos(enviados)[-1], "y el intervalo, en el menú"
+    assert "cada 3 días" in textos(enviados)[-1], "y también en el menú"
 
 
 # --------------------------------------------------------------------------
@@ -405,3 +404,77 @@ def test_las_copias_del_env_estan_ignoradas_por_git():
     ignorados = (pathlib.Path(__file__).resolve().parent.parent / ".gitignore").read_text()
     assert ".env" in ignorados
     assert ".bak" in ignorados
+
+
+# --------------------------------------------------------------------------
+# Los avisos de Telegram no son mensajes de nadie
+# --------------------------------------------------------------------------
+
+def test_el_aviso_de_que_fijo_un_mensaje_no_se_contesta(enviados):
+    """Se veían dos «Todavía no entiendo audios ni fotos»: eran los pines.
+
+    Fijar el tablero mete un aviso de servicio en el chat, y esos llegan SIN texto.
+    """
+    handlers.handle_update({"update_id": 400, "message": {
+        "chat": {"id": CHAT, "type": "supergroup"}, "from": {"id": 7, "is_bot": True},
+        "message_id": 12, "pinned_message": {"message_id": 11, "text": "📋 La casa"}}})
+
+    assert not [t for t in textos(enviados) if "audios" in t]
+
+
+def test_el_aviso_del_pin_se_borra_del_chat(enviados):
+    handlers.handle_update({"update_id": 401, "message": {
+        "chat": {"id": CHAT, "type": "supergroup"}, "from": {"id": 7, "is_bot": True},
+        "message_id": 12, "pinned_message": {"message_id": 11}}})
+
+    borrados = [e for e in enviados if e["metodo"] == "deleteMessage"]
+    assert [b["message_id"] for b in borrados] == [12]
+
+
+def test_si_lo_fijo_una_persona_no_se_borra_nada(enviados):
+    handlers.handle_update({"update_id": 402, "message": {
+        "chat": {"id": CHAT, "type": "supergroup"}, "from": {"id": 111},
+        "message_id": 12, "pinned_message": {"message_id": 11}}})
+
+    assert not [e for e in enviados if e["metodo"] == "deleteMessage"]
+
+
+@pytest.mark.parametrize("clave", ["new_chat_members", "left_chat_member",
+                                   "new_chat_title", "supergroup_chat_created",
+                                   "migrate_from_chat_id"])
+def test_los_demas_avisos_de_servicio_tampoco(enviados, clave):
+    handlers.handle_update({"update_id": 403, "message": {
+        "chat": {"id": CHAT, "type": "supergroup"}, "from": {"id": 111},
+        "message_id": 13, clave: [{"id": 1}]}})
+
+    assert textos(enviados) == []
+    assert db.pendientes(CHAT) == []
+
+
+def test_un_audio_de_verdad_si_se_contesta(enviados):
+    handlers.handle_update({"update_id": 404, "message": {
+        "chat": {"id": CHAT, "type": "supergroup"}, "from": {"id": 111},
+        "message_id": 14, "voice": {"file_id": "x"}}})
+
+    assert any("audios" in t for t in textos(enviados))
+
+
+def test_al_mudarse_no_se_lleva_los_message_id(enviados, monkeypatch, tmp_path):
+    """Un message_id es de UN chat: en el nuevo no existe.
+
+    Si se mudara la fila del tablero, Notita intentaría editar un mensaje que no está
+    y el grupo nuevo se quedaría sin tablero.
+    """
+    monkeypatch.setattr(config, "BASE_DIR", tmp_path)
+    (tmp_path / ".env").write_text(f"ALLOWED_CHAT_ID={CHAT}\n")
+    db.guardar_tablero(CHAT, 999)
+    db.anotar_temporal(CHAT, 998, "menu", 5)
+    db.crear_tarea(CHAT, "sacar la basura", due=hoy())
+
+    handlers.handle_update(aviso_de_mudanza())
+
+    nuevo = db.tablero_actual(NUEVO_CHAT)
+    assert nuevo["message_id"] != 999, "es un tablero nuevo, publicado de cero"
+    with db.conn() as c:
+        assert c.execute("SELECT COUNT(*) n FROM mensajes_temporales").fetchone()["n"] == 0
+    assert len(db.pendientes(NUEVO_CHAT)) == 1, "pero las tareas sí se mudan"
