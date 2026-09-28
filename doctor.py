@@ -321,6 +321,35 @@ def _revisar_si_la_rutina_corre() -> None:
     del ahora
 
 
+def revisar_esquema() -> None:
+    """Que la base tenga la forma que espera esta versión.
+
+    Pasó de verdad: `updates_vistos.update_id` quedó como INTEGER (de v1) y TODOS los
+    botones se descartaban en silencio. La base estaba «escribible» y el doctor decía
+    que todo bien.
+    """
+    try:
+        with db.conn() as c:
+            tablas = {f["name"] for f in
+                      c.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+            tipos = {f["name"]: (f["type"] or "").upper()
+                     for f in c.execute("PRAGMA table_info(updates_vistos)")}
+    except sqlite3.Error as e:
+        mal(f"no pude leer el esquema: {e}")
+        return
+
+    faltan = {"tablero", "propuestas", "deshacer", "partes_enviados", "pausa",
+              "ajustes"} - tablas
+    if faltan:
+        mal(f"faltan tablas: {', '.join(sorted(faltan))}",
+            "corré python3 doctor.py de nuevo, o `python3 -c \"from notita import db; db.init_db()\"`")
+    elif tipos.get("update_id") != "TEXT":
+        mal("la base quedó con el esquema de v1 (los botones no van a funcionar)",
+            "corré: python3 -c \"from notita import db; db.init_db()\"")
+    else:
+        ok("el esquema está al día")
+
+
 def revisar_tablero() -> None:
     """El tablero fijado es la cara de v2: si no está, hay que saberlo."""
     titulo("El tablero")
@@ -384,6 +413,7 @@ def main() -> None:
     revisar_personas()
     revisar_gemini()
     revisar_base()
+    revisar_esquema()
     if yo:
         revisar_tablero()
     revisar_recordatorios()

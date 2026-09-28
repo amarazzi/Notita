@@ -478,3 +478,85 @@ def test_al_mudarse_no_se_lleva_los_message_id(enviados, monkeypatch, tmp_path):
     with db.conn() as c:
         assert c.execute("SELECT COUNT(*) n FROM mensajes_temporales").fetchone()["n"] == 0
     assert len(db.pendientes(NUEVO_CHAT)) == 1, "pero las tareas sí se mudan"
+
+
+# --------------------------------------------------------------------------
+# La base de v1 y los botones
+# --------------------------------------------------------------------------
+
+def base_de_v1(ruta):
+    """Una base con la tabla `updates_vistos` como la creaba v1: INTEGER."""
+    import sqlite3
+
+    c = sqlite3.connect(ruta)
+    c.execute("CREATE TABLE updates_vistos (update_id INTEGER PRIMARY KEY, "
+              "visto_en TEXT NOT NULL)")
+    c.execute("INSERT INTO updates_vistos VALUES (111, '2026-09-28T10:00:00-03:00')")
+    c.commit()
+    c.close()
+
+
+def test_sobre_una_base_de_v1_los_botones_funcionan(tmp_path, monkeypatch, enviados):
+    """El bug que dejó TODOS los botones muertos en producción.
+
+    En v1 `updates_vistos.update_id` era INTEGER; en v2 guarda también los
+    `cb:<id>` de los toques. `CREATE TABLE IF NOT EXISTS` no cambia una tabla que ya
+    existe, así que SQLite rechazaba el texto, el error se leía como «esto ya lo
+    procesé» y el toque se descartaba sin decir nada.
+    """
+    ruta = tmp_path / "v1.db"
+    base_de_v1(ruta)
+    monkeypatch.setattr(config, "DB_PATH", str(ruta))
+    db.init_db()
+    db.ajuste("bienvenida_v2", "1")
+    db.guardar_tablero(CHAT, 1)
+    tid = db.crear_tarea(CHAT, "sacar la basura", due=hoy())
+
+    handlers.handle_update(click(cb.armar("ok", tid)))
+
+    assert db.obtener(tid)["estado"] == "hecha", "el toque tiene que llegar"
+    avisos = [e.get("text") for e in enviados if e["metodo"] == "answerCallbackQuery"]
+    assert avisos == ["✅ Hecho"]
+
+
+def test_la_migracion_rehace_la_tabla(tmp_path, monkeypatch):
+    ruta = tmp_path / "v1.db"
+    base_de_v1(ruta)
+    monkeypatch.setattr(config, "DB_PATH", str(ruta))
+
+    db.init_db()
+
+    with db.conn() as c:
+        tipos = {f["name"]: f["type"] for f in c.execute("PRAGMA table_info(updates_vistos)")}
+    assert tipos["update_id"] == "TEXT"
+
+
+def test_un_problema_de_la_base_no_descarta_el_update(monkeypatch):
+    """Antes, cualquier IntegrityError se leía como «repetido» y se perdía el update."""
+    import sqlite3
+
+    real = db.conn
+
+    class Fingido:
+        def __init__(self, c):
+            self._c = c
+
+        def execute(self, sql, *a):
+            if sql.startswith("INSERT INTO updates_vistos"):
+                raise sqlite3.IntegrityError("datatype mismatch")
+            return self._c.execute(sql, *a)
+
+    from contextlib import contextmanager
+
+    @contextmanager
+    def fingida():
+        with real() as c:
+            yield Fingido(c)
+
+    monkeypatch.setattr(db, "conn", fingida)
+    assert db.update_nuevo("cb:99") is True, "ante la duda, se procesa"
+
+
+def test_un_toque_repetido_de_verdad_sigue_descartandose(enviados):
+    assert db.update_nuevo("cb:77") is True
+    assert db.update_nuevo("cb:77") is False

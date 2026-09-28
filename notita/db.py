@@ -208,6 +208,8 @@ def _migrar_a_v2(c) -> None:
                   ("recados_descartados", str(recados)))
         log.info("v2: descarté %d recado(s) diferido(s) pendiente(s)", recados)
 
+    _rehacer_updates_vistos(c)
+
     existentes = {f["name"] for f in c.execute("PRAGMA table_info(tasks)")}
     for columna in COLUMNAS_MUERTAS["tasks"]:
         if columna in existentes:
@@ -221,6 +223,26 @@ def _migrar_a_v2(c) -> None:
 
     c.execute("INSERT OR REPLACE INTO ajustes (clave, valor) VALUES (?,?)",
               ("esquema", str(VERSION_ESQUEMA)))
+
+
+def _rehacer_updates_vistos(c) -> None:
+    """En v1 `update_id` era INTEGER; en v2 guarda también los `cb:<id>` de los toques.
+
+    `CREATE TABLE IF NOT EXISTS` no cambia una tabla que ya existe, así que en una base
+    de v1 la columna seguía siendo INTEGER, SQLite rechazaba el texto y TODOS los
+    botones se descartaban en silencio. La tabla es sólo un caché para no procesar dos
+    veces lo mismo: rehacerla no pierde nada.
+    """
+    tipos = {f["name"]: (f["type"] or "").upper()
+             for f in c.execute("PRAGMA table_info(updates_vistos)")}
+    if tipos.get("update_id") == "TEXT":
+        return
+    log.info("Rehaciendo updates_vistos: la columna era %s", tipos.get("update_id"))
+    c.execute("DROP TABLE IF EXISTS updates_vistos")
+    c.execute("""CREATE TABLE updates_vistos (
+                     update_id TEXT PRIMARY KEY,
+                     visto_en  TEXT NOT NULL
+                 )""")
 
 
 def ajuste(clave: str, valor: str | None = None) -> str | None:
@@ -545,7 +567,15 @@ def update_nuevo(clave: str | int | None) -> bool:
             c.execute("INSERT INTO updates_vistos (update_id, visto_en) VALUES (?,?)",
                       (str(clave), ahora().isoformat(timespec="seconds")))
         except sqlite3.IntegrityError:
-            return False
+            # Sólo es repetido si la fila está de verdad. Un «datatype mismatch»
+            # también llega por acá, y tomarlo por repetido hacía que se descartaran
+            # TODOS los toques de botón sin decir nada.
+            ya_estaba = c.execute("SELECT 1 FROM updates_vistos WHERE update_id = ?",
+                                  (str(clave),)).fetchone()
+            if ya_estaba:
+                return False
+            log.error("No pude registrar el update %s, lo proceso igual", clave)
+            return True
         # No hace falta guardar la historia entera: se recortan los más viejos.
         c.execute("""DELETE FROM updates_vistos WHERE rowid NOT IN
                      (SELECT rowid FROM updates_vistos ORDER BY visto_en DESC LIMIT ?)""",
