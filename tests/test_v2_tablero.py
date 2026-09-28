@@ -116,6 +116,19 @@ def test_con_la_casa_desbordada_manana_tambien_se_colapsa(enviados):
     assert any(e.startswith("📂 Mañana") for e in etiquetas)
 
 
+def test_una_seccion_gigante_se_corta_y_ofrece_el_resto(enviados):
+    """Con una fila por tarea, 45 filas son imposibles de usar (y Telegram topa en 100)."""
+    for i in range(45):
+        db.crear_tarea(CHAT, f"cosa {i}", due=hoy())
+
+    texto, filas = tablero.render(CHAT)
+
+    vistos = [b for fila in filas for b in fila if b["text"].startswith("✅")]
+    assert len(vistos) == tablero.MAX_POR_SECCION
+    assert "y 20 más ›" in texto
+    assert any("ver las otras 20" in b["text"] for fila in filas for b in fila)
+
+
 def test_los_titulos_se_cortan_en_un_limite_de_palabra(enviados):
     db.crear_tarea(CHAT, "llamar al ejército de salvación para que se lleven la cama",
                    due=hoy())
@@ -352,19 +365,24 @@ def test_las_vencidas_dicen_cuando_vencieron(enviados):
     assert "venció el sáb 26/9" in texto
 
 
-def test_el_boton_entra_en_media_pantalla(enviados):
-    """El ✅ comparte la fila con el ⋯, así que Telegram lo corta al medio si es largo.
+def test_el_visto_se_lleva_la_fila_entera(enviados):
+    """Es lo que más se toca: blanco grande y título legible.
 
-    Se veía «✅ 🕕 10:00 · Tr...laves Allen · Axel».
+    Con media fila (compartida con el ⋯), Telegram cortaba al medio: se veía
+    «✅ 🕕 10:00 · Tr...laves Allen · Axel».
     """
     db.crear_tarea(CHAT, "traer las llaves Allen del departamento",
                    due=LUNES, hora="10:00", responsable="axel")
     texto, filas = tablero.render(CHAT, LUNES)
 
-    etiqueta = filas[0][0]["text"]
-    assert len(etiqueta) <= 26, etiqueta
-    # Pero la hora y el responsable no se pierden: van en el texto.
+    assert len(filas[0]) == 1, "el ✅ va solo en su fila"
+    assert filas[0][0]["text"].startswith("✅ 1. Traer las llaves Allen")
+    # La hora y el responsable se ven en el renglón del texto.
     assert "🕕 10:00" in texto and "Axel" in texto
+
+    # Y el ⋯ de cada tarea entra por un botón al final.
+    etiquetas = [b["text"] for fila in filas for b in fila]
+    assert "⋯ Cambiar algo" in etiquetas
 
 
 def test_publicar_dos_veces_seguidas_no_deja_dos_tableros(enviados, casa_nueva):
@@ -393,3 +411,83 @@ def test_al_reemplazar_el_tablero_lo_desfija_antes_de_borrarlo(enviados, casa_nu
 
     metodos = [e["metodo"] for e in enviados]
     assert metodos.index("unpinChatMessage") < metodos.index("deleteMessage")
+
+
+# --------------------------------------------------------------------------
+# Deshacer un ✅ mal tocado
+# --------------------------------------------------------------------------
+
+def test_despues_de_tachar_el_tablero_ofrece_deshacer(enviados):
+    """Antes, un ✅ equivocado no tenía vuelta: la tarea desaparecía del tablero."""
+    tid = db.crear_tarea(CHAT, "agarrar sábanas", due=hoy())
+
+    handlers.handle_update(click(cb.armar("ok", tid)))
+
+    _, filas = tablero.render(CHAT)
+    etiquetas = [b["text"] for fila in filas for b in fila]
+    assert any("↩️ Deshacer: Agarrar sábanas" in e for e in etiquetas)
+
+
+def test_el_deshacer_del_tablero_recupera_la_tarea(enviados):
+    tid = db.crear_tarea(CHAT, "agarrar sábanas", due=hoy())
+    handlers.handle_update(click(cb.armar("ok", tid), cq_id="ok"))
+    _, filas = tablero.render(CHAT)
+    boton = [b for fila in filas for b in fila if "Deshacer" in b["text"]][0]
+
+    handlers.handle_update(click(boton["callback_data"], message_id=1, cq_id="undo"))
+
+    fila = db.obtener(tid)
+    assert fila["estado"] == "pendiente"
+    assert fila["completed_by"] is None
+    avisos = [e.get("text") for e in enviados if e["metodo"] == "answerCallbackQuery"]
+    assert "↩️ Recuperada" in avisos
+
+
+def test_el_deshacer_del_tablero_no_reemplaza_el_tablero(enviados):
+    """Si se toca desde el tablero, el tablero se refresca; no se convierte en «↩️»."""
+    tid = db.crear_tarea(CHAT, "agarrar sábanas", due=hoy())
+    handlers.handle_update(click(cb.armar("ok", tid), cq_id="ok"))
+    _, filas = tablero.render(CHAT)
+    boton = [b for fila in filas for b in fila if "Deshacer" in b["text"]][0]
+    enviados.clear()
+
+    handlers.handle_update(click(boton["callback_data"], message_id=1, cq_id="undo"))
+
+    editados = [e["text"] for e in enviados if e["metodo"] == "editMessageText"]
+    assert editados and all("La casa" in e for e in editados)
+
+
+def test_el_deshacer_vencido_no_se_ofrece(enviados):
+    tid = db.crear_tarea(CHAT, "agarrar sábanas", due=hoy())
+    handlers.handle_update(click(cb.armar("ok", tid)))
+    with db.conn() as c:
+        c.execute("UPDATE deshacer SET expira_at = '2020-01-01T00:00:00-03:00'")
+
+    _, filas = tablero.render(CHAT)
+    assert not [b for fila in filas for b in fila if "Deshacer" in b["text"]]
+
+
+def test_cambiar_algo_lista_las_tareas_numeradas(enviados):
+    for i, cosa in enumerate(("agarrar sábanas", "traer las llaves", "pintar")):
+        db.crear_tarea(CHAT, cosa, due=hoy() if i < 2 else None)
+    enviados.clear()
+
+    handlers.handle_update(click(cb.armar("elegir")))
+
+    envio = [e for e in enviados if e["metodo"] == "sendMessage"][0]
+    etiquetas = [b["text"] for fila in envio["reply_markup"]["inline_keyboard"]
+                 for b in fila]
+    assert etiquetas[0].startswith("1. Agarrar sábanas")
+    assert etiquetas[2].startswith("3. Pintar"), "el numerado sigue el del tablero"
+
+
+def test_elegir_y_abrir_el_menu_reemplaza_la_lista(enviados):
+    tid = db.crear_tarea(CHAT, "agarrar sábanas", due=hoy())
+    handlers.handle_update(click(cb.armar("elegir"), cq_id="e"))
+    lista_id = 1 + max(i for i, e in enumerate(enviados) if e["metodo"] == "sendMessage")
+    enviados.clear()
+
+    handlers.handle_update(click(cb.armar("m", tid), message_id=lista_id, cq_id="m"))
+
+    # El menú se edita en el lugar en vez de dejar dos mensajes colgados.
+    assert [e["metodo"] for e in enviados] == ["answerCallbackQuery", "editMessageText"]

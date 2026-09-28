@@ -712,6 +712,22 @@ def leer_deshacer(deshacer_id: int) -> dict | None:
             "item_ids": json.loads(fila["item_ids"])}
 
 
+def ultimo_deshacer(chat_id: int) -> dict | None:
+    """El deshacer más reciente que siga vivo. Lo ofrece el tablero.
+
+    Un ✅ mal tocado no tenía vuelta atrás: la tarea desaparecía del tablero y había
+    que anotarla de nuevo.
+    """
+    with conn() as c:
+        fila = c.execute("SELECT * FROM deshacer WHERE chat_id = ? AND expira_at > ? "
+                         "ORDER BY id DESC LIMIT 1",
+                         (chat_id, ahora().isoformat(timespec="seconds"))).fetchone()
+    if not fila:
+        return None
+    return {"id": fila["id"], "chat_id": fila["chat_id"], "accion": fila["accion"],
+            "item_ids": json.loads(fila["item_ids"])}
+
+
 def borrar_deshacer(deshacer_id: int) -> None:
     with conn() as c:
         c.execute("DELETE FROM deshacer WHERE id = ?", (deshacer_id,))

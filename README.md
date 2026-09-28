@@ -42,21 +42,33 @@ ninguna modificación se ejecuta sin que alguien toque un botón
 El **tablero** es un mensaje fijado en el grupo que se edita en el lugar:
 
 ```
-📋 La casa · domingo 27/9
+📋 La casa · lunes 28/9
 
-⚠️ VENCIDAS · 2 ›
-HOY · dom 27
-[ ✅ Llevar bolsas de consorcio ] [ ⋯ ]
-[ ✅ Agarrar sábanas y acolchado ] [ ⋯ ]
-MAÑANA · lun 28
-[ ✅ 🕕 18:00 Veterinario · Barbu ] [ ⋯ ]
+⚠️ VENCIDAS · 1
+1. 🧽 Agarrar sábanas y acolchado · ayer, dom 27
+
+HOY · lun 28 · 2
+2. 🐾 Llevar a Milo al veterinario · 🕕 18:00 · Barbu
+3. 🔧 Comprar cómoda para la habitación
+
 ESTA SEMANA · 3 ›
 🛒 SÚPER · 4 ›
+
+[ ✅ 1. Agarrar sábanas y acolchado ]
+[ ✅ 2. Llevar a Milo al veterinario ]
+[ ✅ 3. Comprar cómoda para la habitación ]
+[ 📂 Esta semana · 3 ]
+[ 🛒 Súper · 4 ]
+[ ⋯ Cambiar algo ]
 ```
 
-- **✅** la da por hecha de un toque. Sin mensajes nuevos en el grupo.
-- **⋯** abre un menú aparte: hecho, mover de día, quién la hace, renombrar, mandar al
-  súper, borrar y agregar al calendario.
+- **✅** la da por hecha de un toque. Sin mensajes nuevos en el grupo. Se lleva la fila
+  entera porque es lo que más se toca: blanco grande y título legible.
+- El **número** ata cada botón con su renglón: Telegram pone los botones todos juntos
+  abajo, fuera de las secciones.
+- **⋯ Cambiar algo** lista las tareas para elegir cuál: mover de día, quién la hace,
+  renombrar, mandar al súper, borrar o agregar al calendario.
+- Si tachás algo sin querer, aparece **↩️ Deshacer** en el tablero por 10 minutos.
 - Cada tarea aparece **en una sola sección**. Las colapsadas se abren en un mensaje
   aparte, así lo que toca uno no le cambia la pantalla al otro.
 
@@ -529,7 +541,7 @@ También desde el grupo: `/parte`.
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt pytest
 cp .env.example .env
-pytest                 # 411 tests, sin red ni API keys
+pytest                 # 419 tests, sin red ni API keys
 python app.py          # http://localhost:5000
 ```
 

@@ -21,11 +21,15 @@ from .dates import ahora, de_iso, domingo_de_la_semana, hoy
 log = logging.getLogger("notita.tablero")
 
 DEBOUNCE = 3            # segundos entre ediciones
-# El botón ✅ comparte la fila con el ⋯, así que se lleva la mitad del ancho: más
-# largo que esto y Telegram lo corta al medio. El título completo va en el texto.
-LARGO_BOTON = 18
-MAX_BOTONES = 80        # antes de colapsar «Mañana» también
+# El ✅ se lleva la fila entera: es lo que más se toca y un blanco grande evita
+# tacharle la tarea equivocada al otro. Con media fila, Telegram cortaba los títulos
+# al medio («Tr...laves Allen»).
+LARGO_BOTON = 34
+MAX_BOTONES = 40        # antes de colapsar «Mañana» también
 MAX_EN_SECCION = 3      # más que esto y la sección de vencidas va colapsada
+# Tope duro por sección: Telegram no acepta más de 100 botones, y un teclado de 60
+# filas es imposible de usar igual. El resto se ve tocando la sección.
+MAX_POR_SECCION = 25
 
 
 def render(chat_id: int, ref: date | None = None) -> tuple[str, list]:
@@ -51,12 +55,17 @@ def render(chat_id: int, ref: date | None = None) -> tuple[str, list]:
             continue
         if clave in expandidas:
             lineas.append(f"\n{titulo} · {len(rows)}")
-            for r in rows:
+            for r in rows[:MAX_POR_SECCION]:
                 numero += 1
                 # El número es lo que ata cada renglón con su botón.
                 lineas.append(f"<b>{numero}.</b> "
                               + views.linea(r, ref, con_fecha=clave == "vencidas"))
                 filas.extend(_fila_tarea(r, ref, numero))
+            if len(rows) > MAX_POR_SECCION:
+                restan = len(rows) - MAX_POR_SECCION
+                lineas.append(f"<i>y {restan} más ›</i>")
+                filas.append([{"text": f"› ver las otras {restan}",
+                               "callback_data": cb.armar("sec", clave)}])
         else:
             lineas.append(f"\n{titulo} · {len(rows)} ›")
             filas.append([{"text": f"{_icono(clave)} {_nombre_corto(clave)} · {len(rows)}",
@@ -65,6 +74,16 @@ def render(chat_id: int, ref: date | None = None) -> tuple[str, list]:
     if compras:
         lineas.append(f"\n🛒 <b>SÚPER</b> · {len(compras)} ›")
         filas.append([{"text": f"🛒 Súper · {len(compras)}", "callback_data": cb.armar("sup")}])
+
+    ultima = []
+    if casa:
+        ultima.append({"text": "⋯ Cambiar algo", "callback_data": cb.armar("elegir")})
+    deshacer = db.ultimo_deshacer(chat_id)
+    if deshacer:
+        ultima.append({"text": f"↩️ Deshacer{_que_deshace(deshacer)}",
+                       "callback_data": cb.armar("u", deshacer["id"])})
+    if ultima:
+        filas.append(ultima)
 
     if len(lineas) == 1:
         lineas.append("\nNo hay nada pendiente. Qué lujo ✨")
@@ -125,19 +144,24 @@ def _icono(clave: str) -> str:
     return "⚠️" if clave == "vencidas" else "📂"
 
 
+def _que_deshace(deshacer: dict) -> str:
+    """«↩️ Deshacer: Agarrar sábanas», para saber qué se va a revertir."""
+    if len(deshacer["item_ids"]) != 1:
+        return f" ({len(deshacer['item_ids'])})"
+    row = db.obtener(deshacer["item_ids"][0])
+    return f": {views.recortar(views.titulo(row), 20)}" if row is not None else ""
+
+
 def _cuantos_botones(secciones: dict, expandidas: set[str]) -> int:
-    sueltos = sum(len(rows) * 2 for clave, rows in secciones.items() if clave in expandidas)
+    sueltos = sum(len(rows) for clave, rows in secciones.items() if clave in expandidas)
     colapsadas = sum(1 for clave, rows in secciones.items()
                      if rows and clave not in expandidas)
     return sueltos + colapsadas + 1      # +1 por el súper
 
 
 def _fila_tarea(row, ref: date, numero: int | None = None) -> list[list[dict]]:
-    return [[
-        {"text": f"✅ {etiqueta(row, ref, numero=numero)}",
-         "callback_data": cb.armar("ok", row["id"])},
-        {"text": "⋯", "callback_data": cb.armar("m", row["id"])},
-    ]]
+    return [[{"text": f"✅ {etiqueta(row, ref, numero=numero)}",
+              "callback_data": cb.armar("ok", row["id"])}]]
 
 
 def etiqueta(row, ref: date, largo: int = LARGO_BOTON,

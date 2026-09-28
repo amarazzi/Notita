@@ -130,6 +130,30 @@ def confirmar_borrar_recurrente(chat_id: int, message_id: int, item_id: int) -> 
 # Secciones colapsadas y súper
 # --------------------------------------------------------------------------
 
+def abrir_elegir(chat_id: int, ref: date | None = None) -> None:
+    """«⋯ Cambiar algo»: un botón por tarea, numerado igual que el tablero.
+
+    El ✅ se lleva la fila entera en el tablero (es lo que más se toca), así que el
+    resto de las acciones entran por acá.
+    """
+    from . import tablero
+
+    ref = ref or hoy()
+    secciones = tablero.repartir(db.pendientes(chat_id, tipo="casa"), ref)
+    numeradas = []
+    for clave, _ in tablero._TITULOS(ref):
+        numeradas.extend(secciones.get(clave) or [])
+    if not numeradas:
+        _publicar_temporal(chat_id, "No hay nada para cambiar ✨",
+                           [[{"text": "✖️ Cerrar", "callback_data": cb.armar("c")}]], "menu")
+        return
+    filas = [[{"text": f"{i}. {views.recortar(views.titulo(row), 28)}",
+               "callback_data": cb.armar("m", row["id"])}]
+             for i, row in enumerate(numeradas[:30], start=1)]
+    filas.append([{"text": "✖️ Cerrar", "callback_data": cb.armar("c")}])
+    _publicar_temporal(chat_id, "¿Cuál querés cambiar?", filas, "menu")
+
+
 def abrir_seccion(chat_id: int, clave: str, ref: date | None = None) -> None:
     """Un mensaje temporal con esa sección expandida. El tablero no se toca."""
     ref = ref or hoy()
@@ -147,7 +171,8 @@ def abrir_seccion(chat_id: int, clave: str, ref: date | None = None) -> None:
     for row in rows[:40]:
         lineas.append(views.linea(row, ref))
         filas.append([
-            {"text": f"✅ {tablero.etiqueta(row, ref)}", "callback_data": cb.armar("ok", row["id"])},
+            {"text": f"✅ {views.recortar(views.titulo(row), 18)}",
+             "callback_data": cb.armar("ok", row["id"])},
             {"text": "⋯", "callback_data": cb.armar("m", row["id"])},
         ])
     filas.append([{"text": "✖️ Cerrar", "callback_data": cb.armar("c")}])

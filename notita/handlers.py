@@ -544,6 +544,10 @@ def _callback(cq: dict) -> None:
         telegram.responder_callback(cq_id)
         menus.abrir_seccion(chat_id, args[0] if args else "hoy", ref)
         return
+    if accion == "elegir":
+        telegram.responder_callback(cq_id)
+        menus.abrir_elegir(chat_id, ref)
+        return
     if accion == "sup":
         telegram.responder_callback(cq_id)
         menus.abrir_super(chat_id, message_id if _es_temporal(chat_id, message_id) else None)
@@ -592,7 +596,9 @@ def _callback(cq: dict) -> None:
         _completar(chat_id, message_id, cq_id, row, quien, ref)
     elif accion == "m":
         telegram.responder_callback(cq_id)
-        menus.abrir(chat_id, row["id"], None, ref)
+        # Si vino de la lista de «⋯ Cambiar algo», el menú la reemplaza en el lugar.
+        desde = message_id if _es_temporal(chat_id, message_id) else None
+        menus.abrir(chat_id, row["id"], desde, ref)
     elif accion == "d":
         _mover(chat_id, message_id, cq_id, row, args[1] if len(args) > 1 else "m", ref)
     elif accion == "d+":
@@ -656,6 +662,9 @@ def _completar(chat_id: int, message_id: int, cq_id: str, row, quien: str,
                ref: date) -> None:
     nueva = db.marcar_hecha(row["id"], quien)
     db.vencer_deshacer_de([row["id"]])
+    # Un ✅ mal tocado no tenía vuelta atrás: la tarea desaparecía del tablero y había
+    # que anotarla de nuevo. Ahora el tablero ofrece deshacerlo un rato.
+    db.guardar_deshacer(chat_id, [row["id"]], accion="completar")
     aviso = "✅ Hecho"
     if nueva is not None:
         aviso = f"✅ Hecho · la próxima {views.cuando(de_iso(nueva['due_date']), None, ref)}"
@@ -769,7 +778,7 @@ def _deshacer(chat_id: int, message_id: int, cq_id: str, args: list) -> None:
         telegram.responder_callback(cq_id, "Ya no se puede deshacer")
         telegram.editar_teclado(chat_id, message_id, [])
         return
-    if registro["accion"] == "borrar":
+    if registro["accion"] in ("borrar", "completar"):
         for item_id in registro["item_ids"]:
             db.actualizar(item_id, estado="pendiente", completed_by=None,
                           completed_at=None)
@@ -780,8 +789,12 @@ def _deshacer(chat_id: int, message_id: int, cq_id: str, args: list) -> None:
         aviso = "↩️ Deshecho"
     db.borrar_deshacer(deshacer_id)
     telegram.responder_callback(cq_id, aviso)
-    telegram.editar(chat_id, message_id, f"{aviso} 🤍", [])
-    tablero.actualizar(chat_id)
+    guardado = db.tablero_actual(chat_id)
+    if not guardado or guardado.get("message_id") != message_id:
+        # Si se tocó desde una confirmación, esa confirmación queda resuelta. Si se
+        # tocó desde el tablero, no: el tablero se refresca solo.
+        telegram.editar(chat_id, message_id, f"{aviso} 🤍", [])
+    tablero.actualizar(chat_id, forzar=True)
 
 
 def _corregir(chat_id: int, message_id: int, cq_id: str, args: list) -> None:
