@@ -160,6 +160,11 @@ def init_db() -> None:
             for nombre, tipo in columnas.items():
                 if nombre not in existentes:
                     c.execute(f"ALTER TABLE {tabla} ADD COLUMN {nombre} {tipo}")
+        # Los arreglos de FORMA van acá, fuera de la migración versionada: son
+        # idempotentes y tienen que correr siempre. Cuando este estaba adentro, la
+        # base que ya había migrado salía por el `return` de arriba y no lo recibía
+        # nunca: en producción quedó con la tabla vieja y todos los botones muertos.
+        _rehacer_updates_vistos(c)
         _migrar_a_v2(c)
 
 
@@ -207,8 +212,6 @@ def _migrar_a_v2(c) -> None:
         c.execute("INSERT OR REPLACE INTO ajustes (clave, valor) VALUES (?,?)",
                   ("recados_descartados", str(recados)))
         log.info("v2: descarté %d recado(s) diferido(s) pendiente(s)", recados)
-
-    _rehacer_updates_vistos(c)
 
     existentes = {f["name"] for f in c.execute("PRAGMA table_info(tasks)")}
     for columna in COLUMNAS_MUERTAS["tasks"]:

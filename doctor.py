@@ -220,8 +220,14 @@ def revisar_gemini() -> None:
         return
     bien, detalle = llm.probar_conexion()
     if not bien:
-        mal(f"Gemini no responde: {detalle}",
-            "revisá GEMINI_API_KEY y GEMINI_MODEL en el .env")
+        if any(p in detalle for p in ("sobrecargado", "cuota", "conectar", "503")):
+            # Transitorio o límite del día: la key está bien y Notita sigue anotando
+            # con el modo local. Decir «revisá tu key» manda a buscar donde no está.
+            aviso(f"Gemini no responde ahora: {detalle}",
+                  "no hay nada que arreglar: mientras tanto anota en modo local")
+        else:
+            mal(f"Gemini no responde: {detalle}",
+                "revisá GEMINI_API_KEY y GEMINI_MODEL en el .env")
         return
     ok(f"{config.GEMINI_MODEL} responde")
     if llm.cuota_chica(config.GEMINI_MODEL):
@@ -245,7 +251,7 @@ def revisar_gemini() -> None:
     else:
         aviso(f"interpretó {len(items)} tarea(s) donde había 2; puede fallar con mensajes largos")
 
-    textos = " ".join(i.get("texto", "") for i in items)
+    textos = " ".join(i.get("titulo") or i.get("texto", "") for i in items)
     if "cómoda" in textos or "ó" in textos:
         ok("las tildes vienen bien")
     elif "comoda" in textos.lower().replace("ó", "o"):
@@ -274,12 +280,17 @@ def revisar_base() -> None:
         ok("base vacía, recién empezando")
 
     if config.ALLOWED_CHAT_ID:
-        from notita.dates import hoy
+        from datetime import timedelta
 
-        hoy_ = hoy()
-        vencen = db.vencen_hasta(config.ALLOWED_CHAT_ID, hoy_)
-        if vencen:
-            ok(f"{len(vencen)} tarea(s) se van a recordar hoy a las 20:00")
+        from notita.dates import de_iso, hoy
+
+        manana = hoy() + timedelta(days=1)
+        pendientes = db.pendientes(config.ALLOWED_CHAT_ID, tipo="casa")
+        de_manana = [r for r in pendientes if de_iso(r["due_date"]) == manana]
+        atrasadas = [r for r in pendientes
+                     if de_iso(r["due_date"]) and de_iso(r["due_date"]) <= hoy()]
+        ok(f"el parte de hoy va a contar {len(de_manana)} de mañana"
+           + (f" y {len(atrasadas)} sin hacer" if atrasadas else ""))
 
 
 def revisar_recordatorios() -> None:
@@ -324,10 +335,14 @@ def _revisar_si_la_rutina_corre() -> None:
 def revisar_esquema() -> None:
     """Que la base tenga la forma que espera esta versión.
 
+    Va en su propia sección: cuando compartía la de «Base de datos», el ✗ del esquema
+    parecía un problema de permisos.
+
     Pasó de verdad: `updates_vistos.update_id` quedó como INTEGER (de v1) y TODOS los
     botones se descartaban en silencio. La base estaba «escribible» y el doctor decía
     que todo bien.
     """
+    titulo("El esquema de la base")
     try:
         with db.conn() as c:
             tablas = {f["name"] for f in

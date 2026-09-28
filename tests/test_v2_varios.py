@@ -560,3 +560,31 @@ def test_un_problema_de_la_base_no_descarta_el_update(monkeypatch):
 def test_un_toque_repetido_de_verdad_sigue_descartandose(enviados):
     assert db.update_nuevo("cb:77") is True
     assert db.update_nuevo("cb:77") is False
+
+
+def test_el_arreglo_corre_aunque_la_base_ya_hubiera_migrado(tmp_path, monkeypatch,
+                                                            enviados):
+    """El arreglo estaba DENTRO de la migración versionada, que sale temprano si ya
+
+    corrió. O sea que justo las bases que ya habían pasado a v2 —todas las de
+    producción— nunca lo recibían, y los botones seguían muertos. Mi test anterior no
+    lo vio porque usaba una base nueva, sin la marca de esquema.
+    """
+    import sqlite3
+
+    ruta = tmp_path / "ya_migrada.db"
+    base_de_v1(ruta)
+    c = sqlite3.connect(ruta)
+    c.execute("CREATE TABLE ajustes (clave TEXT PRIMARY KEY, valor TEXT)")
+    c.execute("INSERT INTO ajustes VALUES ('esquema', '2')")   # ya migró
+    c.commit()
+    c.close()
+    monkeypatch.setattr(config, "DB_PATH", str(ruta))
+
+    db.init_db()
+
+    with db.conn() as tabla:
+        tipos = {f["name"]: f["type"]
+                 for f in tabla.execute("PRAGMA table_info(updates_vistos)")}
+    assert tipos["update_id"] == "TEXT", "el arreglo tiene que correr igual"
+    assert db.update_nuevo("cb:1044983470193328") is True
