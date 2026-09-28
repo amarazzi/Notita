@@ -1,76 +1,113 @@
 # Notita 🧲
 
-Bot de Telegram que hace de todolist compartida de la casa. Le escribís en el grupo como
-le hablarías a una persona, y él organiza, pregunta y recuerda.
+Bot de Telegram que hace de todolist compartida de la casa.
+
+**Hablando se anota; tocando se gestiona.** Le escribís como le hablarías a una persona
+y él anota; para manejar lo anotado hay un tablero fijado en el grupo con un botón por
+tarea. El lenguaje natural es buenísimo para capturar y malo para modificar, así que
+ninguna modificación se ejecuta sin que alguien toque un botón
+([por qué](docs/DISEÑO-v2.md)).
 
 - Lenguaje natural con **Gemini** (capa gratuita), con salida estructurada en JSON.
   Es opcional: sin API key funciona igual, con reglas locales.
 - **Las fechas las calcula el código**, nunca el LLM.
 - **SQLite**, sin servidor de base de datos.
 - **100% gratis**: PythonAnywhere free + Gemini free tier.
-- Todo en hora de Buenos Aires (`America/Argentina/Buenos_Aires`).
+- Zona horaria configurable; por defecto `America/Argentina/Buenos_Aires`.
 - Sirve para **cualquier casa**: los nombres y la cantidad de personas salen del `.env`.
 
 ---
 
 ## Qué hace
 
+### Anotar: hablando
+
 | | |
 |---|---|
-| Carga en lote | «hay que limpiar la heladera, llamar al plomero y comprar focos» → 3 tareas |
-| Pregunta la fecha | si no decís cuándo, te pregunta con botones (y también entiende texto libre) |
-| Fecha **y hora** | «llevar a Milo al veterinario el jueves a las 18» → guarda la hora y avisa a esa hora ([hace falta que el cron corra seguido](#y-la-hora-exacta)) |
+| Carga en lote | «hay que limpiar la heladera, llamar al plomero y falta leche» → 3 cosas, cada una en su lugar |
+| Fechas relativas | «mañana», «el jueves», «el finde», «todos los 10», «en 3 días» |
+| Fecha y hora | «llevar a Milo al veterinario el jueves a las 18» → guarda la hora y te da un botón para pasarlo al calendario |
 | Responsable | «Barbu tiene que llamar al veterinario» → queda a nombre de Barbu |
-| Lista del super | «falta leche» va al super, sin fecha ni recordatorios |
-| Recurrentes | «cambiar las piedritas cada semana», «pagar expensas todos los 10» 🔁 |
-| Recordatorio 20:00 | «¿sacar la basura? ¿Lo hicieron?» con ✅ / ⏰ / 🗑️ |
-| Posponer | mañana · finde · semana que viene · elegir fecha |
-| Posponer cargoso | a partir de la 3ª vez te carga un poquito 😅 |
-| Resumen semanal | domingos 20:00, agrupado por día + vencidas + «algún día» |
-| Recados 💌 | «avisale a Axel que llego en 10» → se lo dice en el momento, mencionándolo. Con fecha («mañana que compre pan»), a las 20:00 |
-| No cansa | Si una tarea lleva varias noches sin hacerse, deja de mandar un mensaje por tarea y las junta todas en uno, con «patearlas una semana» |
-| Súper de una | Botón «compramos todo» en `/super`, y el resumen del domingo te dice cuántas cosas quedan |
-| No duplica | Si anotás algo que ya estaba, te lo dice en vez de guardarlo dos veces |
-| Entiende pedidos | «¿qué hay que hacer?», «mostrame el súper», «ya limpié la heladera», «borrá la del plomero» |
-| Varias de una | «ya compré la leche y la lavandina» tacha las dos, en un solo mensaje |
-| Acciones masivas | «borrá todo lo del súper», «ya compramos todo». Borrar todas las tareas pide confirmación |
-| Editar hablando | «pasá lo del horno para el domingo», «lo del veterinario lo hago yo», «cambiá "regar" por "regar el balcón"» |
-| Avisa si algo no cierra | «el 31 de febrero no existe 🤔 ¿para cuándo era?» en vez de guardar cualquier cosa |
-| Aguanta sin internet | si Gemini falla, interpreta con reglas locales y no pierde la tarea |
-| No pierde respuestas | si no puede mandar un mensaje (el proxy de PythonAnywhere falla cada tanto), queda en cola y sale en la próxima |
+| Lista del súper | «falta leche» va al súper. Un mueble o algo de ferretería es tarea, aunque diga «comprar» |
+| Recurrentes | «cambiar las piedritas cada semana», «regar cada 3 días» 🔁 |
+| Recados | «decile a Barbu que ya salí» → se lo dice en el momento, mencionándola |
+| Madrugada | a las 00:40, «mañana» es hoy (y te da un botón para corregirlo si no) |
+| Nunca bloquea | si algo no se entiende o la fecha no existe, lo guarda igual y ofrece corregir |
+| Nunca miente | la confirmación se arma leyendo la base. Si no se pudo guardar, lo dice |
+| Sin duplicados | si anotás algo que ya estaba, te lo dice en vez de guardarlo dos veces |
+| Aguanta sin Gemini | si falla o no hay cuota, interpreta con reglas locales |
 
-### No hace falta aprender comandos
+### Gestionar: tocando
 
-Todo se puede pedir hablando normal; los comandos son un atajo, no el camino principal.
+El **tablero** es un mensaje fijado en el grupo que se edita en el lugar:
 
-| Le escribís | Hace |
-|---|---|
-| «¿qué hay que hacer?» | lo mismo que `/todo` |
-| «mostrame las de limpieza» | lo mismo que `/todo limpieza` |
-| «mostrame la lista del súper» | lo mismo que `/super` |
-| «ya limpié la heladera» | la tacha (y si era recurrente, crea la próxima) |
-| «borrá la del plomero» | la borra; si hay varias parecidas, pregunta cuál |
-| «decile a Axel mañana que lo amo» | se lo dice mañana a las 20:00 |
-| «¿cómo funcionás?» | lo mismo que `/ayuda` |
+```
+📋 La casa · domingo 27/9
+
+⚠️ VENCIDAS · 2 ›
+HOY · dom 27
+[ ✅ Llevar bolsas de consorcio ] [ ⋯ ]
+[ ✅ Agarrar sábanas y acolchado ] [ ⋯ ]
+MAÑANA · lun 28
+[ ✅ 🕕 18:00 Veterinario · Barbu ] [ ⋯ ]
+ESTA SEMANA · 3 ›
+🛒 SÚPER · 4 ›
+```
+
+- **✅** la da por hecha de un toque. Sin mensajes nuevos en el grupo.
+- **⋯** abre un menú aparte: hecho, mover de día, quién la hace, renombrar, mandar al
+  súper, borrar y agregar al calendario.
+- Cada tarea aparece **en una sola sección**. Las colapsadas se abren en un mensaje
+  aparte, así lo que toca uno no le cambia la pantalla al otro.
+
+### Pedir por texto: propone y vos confirmás
+
+Si pedís un cambio hablando, Notita **no lo ejecuta**: te lo propone.
+
+```
+vos → ya compré la leche y la lavandina
+      ¿Tacho estas 2?
+      · Leche
+      · Lavandina
+      [ ✅ Leche ] [ ✅ Lavandina ]
+      [ ✅ Las dos ] [ No ]
+```
+
+Funciona igual para borrar, mover («pasá todo lo de mañana para hoy»), renombrar,
+cambiar el responsable, vaciar el súper y pausar a Notita. Si el modelo entendió mal,
+no pasó nada.
+
+### El parte diario
+
+A las 20:00 (configurable) llega el único mensaje que suena:
+
+```
+🌙 Para mañana, lun 28
+🕕 18:00 · Llevar a Milo al veterinario · Barbu
+📌 Comprar la cómoda · los dos
+⚠️ Quedó de hoy: Agarrar sábanas y acolchado
+[ ✅ Ya está ] [ ⏰ A mañana ]
+🛒 En el súper hay 4 cosas
+```
+
+**Nada se mueve solo:** una tarea vencida queda vencida hasta que alguien toque.
+
+### Lo que NO hace
+
+- **No avisa a horas exactas.** Un cron gratuito no da esa garantía, así que para los
+  turnos te da un botón **📅 Agregar al calendario** (Google Calendar o un `.ics`).
+- **No manda recados para más tarde.** «Decile mañana que compre pan» se convierte en
+  una tarea de esa persona para ese día.
+- **No cambia el ritmo de una recurrente**: se borra y se anota de nuevo.
 
 ### Comandos
 
 ```
-/todo            todo lo pendiente, agrupado por cuándo vence
-/todo limpieza   filtrado por categoría
-/algundia        sólo lo que no tiene fecha
-/super           la lista del super, con botones para tachar
-/ayuda           cómo usarlo
-/chatid          devuelve el chat_id (sirve para configurarlo la primera vez)
-/recordatorios   dispara a mano la rutina de las 20:00 (modo prueba)
-```
-
-Alias: `/tareas` = `/todo`, `/compras` = `/super`, `/probar` = `/recordatorios`.
-
-`/todo` agrupa por horizonte de tiempo, lo urgente arriba:
-
-```
-⚠️ VENCIDAS → HOY → MAÑANA → ESTA SEMANA → MÁS ADELANTE → ALGÚN DÍA → SÚPER
+/tablero   publica el tablero al final del chat y lo fija (también: escribir «tablero»)
+/super     la lista del súper, con botones para tachar
+/ayuda     cómo usarlo
+/parte     manda el parte a mano (modo prueba)
+/chatid    devuelve el chat_id (sirve para configurarlo la primera vez)
 ```
 
 Categorías: `limpieza`, `arreglos`, `tramites`, `pagos`, `mascotas`, `compras`, `otros`.
@@ -299,40 +336,27 @@ python3.13 set_webhook.py https://USUARIO.pythonanywhere.com/telegram
 python3.13 set_webhook.py --info   # para chequear
 ```
 
-### 7. Las 20:00: elegí una de las dos opciones
+### 7. El cron: una corrida cada 15 minutos
 
-Los recordatorios de vencimiento y el resumen de los domingos salen en la **corrida
-principal**, a la hora de `NOTITA_HORA` (20:00 por defecto). Las cuentas gratuitas de
-PythonAnywhere permiten una única tarea diaria, y con eso alcanza para todo salvo la
-hora exacta (ver abajo).
+El **parte diario** sale una sola vez por día, a la hora de `NOTITA_HORA` (20:00 por
+defecto). Pero conviene que el cron corra cada 15 minutos, porque cada corrida además
+limpia los menús que quedaron abiertos y manda lo que no se pudo enviar antes. El parte
+no se duplica: la tabla `partes_enviados` tiene la fecha como clave.
 
-#### Opción A — Tarea diaria de PythonAnywhere (recomendada)
+#### Opción A — Cron externo (recomendada)
 
-Sin depender de nadie más. *Tasks* → **Daily task**. PythonAnywhere programa en **UTC**
-y Argentina es UTC−3 todo el año:
-
-| Hora Argentina | Hora que ponés en PythonAnywhere |
-|---|---|
-| 20:00 | **23:00 UTC** |
-
-Comando:
-
-```
-python3.13 /home/USUARIO/Notita/run_parte.py
-```
-
-Con esta opción **dejá `CRON_SECRET` vacío**: así la ruta `/cron/recordatorios` queda
-apagada (responde 404) y no hay una puerta extra abierta.
-
-#### Opción B — Cron externo (cron-job.org)
-
-Útil si querés otro horario, más de una corrida por día, o si la tarea diaria te quedó
-desactivada. Poné un `CRON_SECRET` en el `.env`, recargá la web app y creá un cronjob
-gratuito en [cron-job.org](https://cron-job.org):
+Poné un `CRON_SECRET` en el `.env`, recargá la web app y creá un cronjob gratuito en
+[cron-job.org](https://cron-job.org):
 
 - **URL**: `https://USUARIO.pythonanywhere.com/cron/recordatorios`
-- **Horario**: 23:00 UTC (o 20:00 si configuraste el timezone de la cuenta en Buenos Aires)
+- **Execution schedule**: *Every 15 minutes* (o custom, minutos `*/15`)
 - **Advanced** → **Headers**: `X-Cron-Secret` = el valor de `CRON_SECRET`
+
+Y avisale a Notita cada cuánto corre:
+
+```
+NOTITA_CRON_MINUTOS=15
+```
 
 La clave va **en el header, nunca en la URL**: las query strings quedan guardadas en el
 access log del servidor. Si falta o no coincide, la ruta responde 403.
@@ -344,28 +368,28 @@ curl -H "X-Cron-Secret: TU_CRON_SECRET" \
      https://USUARIO.pythonanywhere.com/cron/recordatorios
 ```
 
-#### ¿Y la hora exacta?
+#### Opción B — Tarea diaria de PythonAnywhere
 
-Una tarea con hora («el jueves a las 18») se recuerda **a esa hora**, pero para eso
-alguien tiene que llamar a la rutina a esa hora. O sea:
+Sin depender de nadie más, pero una sola corrida por día. *Tasks* → **Daily task**.
+PythonAnywhere programa en **UTC**, y Argentina es UTC−3 todo el año:
 
-| Cada cuánto corre | Qué pasa con «el jueves a las 18» |
+| Hora Argentina | Hora que ponés en PythonAnywhere |
 |---|---|
-| Una vez al día (opción A) | Se recuerda en la corrida de las 20:00, diciendo «era a las 18:00» |
-| Cada 15 o 30 minutos (opción B) | Se recuerda a las 18:00 |
+| 20:00 | **23:00 UTC** |
 
-La corrida principal es, además, la red de seguridad: recuerda todo lo que vence ese día
-aunque su hora ya haya pasado (o todavía no haya llegado), y nunca manda dos veces lo
-mismo el mismo día. Lo mismo vale para los recados con demora («avisale en 10 minutos»):
-con la opción A salen en la corrida de la noche.
+```
+python3.13 /home/USUARIO/Notita/run_parte.py
+```
 
-Si querés la hora exacta, en cron-job.org poné el cronjob **cada 5 o 15 minutos** en vez
-de una vez al día, y avisale a Notita poniendo `NOTITA_CRON_MINUTOS=5` en el `.env`. Es
-gratis y la rutina es idempotente: si no hay nada para mandar, no manda nada.
+Con esta opción **dejá `CRON_SECRET` vacío**: así la ruta `/cron/recordatorios` queda
+apagada (responde 404) y no hay una puerta extra abierta. La contra es que los menús
+vencidos se limpian sólo una vez por día.
 
-Ese `NOTITA_CRON_MINUTOS` es para que **no prometa lo que no puede cumplir**: si le pedís
-un aviso a las 22:07 y el cron corre cada 5 minutos, contesta «22:10», que es cuando va a
-salir de verdad. Con `0` (una corrida diaria) contesta la hora de la corrida.
+#### ¿Y los avisos a la hora exacta?
+
+No existen, a propósito. Un cron gratuito no garantiza el minuto, y prometer un aviso
+que no llega es peor que no prometerlo. Cuando una tarea tiene hora, Notita la guarda, la
+muestra (`🕕 18:00`) y te da un botón **📅 Agregar al calendario**, que sí sabe avisar.
 
 > Con cualquiera de las dos opciones, acordate de entrar cada 3 meses al botón
 > *Run until 3 months from today* de la web app, o PythonAnywhere la desactiva.
@@ -419,7 +443,9 @@ GEMINI_MODEL=gemini-flash-lite-latest
 | `NOTITA_CONTEXTO` | Opcional: dato libre de la casa para que el LLM acierte mejor |
 | `NOTITA_TZ` | Opcional: zona horaria. Por defecto `America/Argentina/Buenos_Aires` |
 | `NOTITA_HORA` | Opcional: a qué hora corre la rutina. Por defecto `20:00` |
-| `NOTITA_CRON_MINUTOS` | Opcional: cada cuántos minutos corre el cron. `0` = una vez al día |
+| `NOTITA_CRON_MINUTOS` | Opcional: cada cuántos minutos corre el cron. Se recomienda `15` |
+| `NOTITA_CALENDARIO` | Opcional: `google` (link) o `ics` (archivo). Por defecto `google` |
+| `NOTITA_PARTE_VACIO` | Opcional: `0` para que no mande el parte cuando no hay nada |
 | `CRON_SECRET` | Habilita `/cron/recordatorios` (opción B). **Vacío = ruta apagada** |
 | `GEMINI_API_KEY` | La key de Google AI Studio |
 | `GEMINI_MODEL` | Por defecto `gemini-flash-lite-latest` |
@@ -471,27 +497,28 @@ Chequea, en orden: versión de Python y dependencias, `.env`, zona horaria, que 
 sirva, **que el privacy mode esté apagado**, el estado del webhook (incluidos mensajes
 encolados y el último error que reportó Telegram), que el bot siga en el grupo, las
 personas configuradas, que Gemini responda y devuelva las tildes bien, que la base sea
-escribible, y cómo quedó agendada la rutina de las 20:00. Sale con código 1 si encontró
+escribible, si el tablero está fijado y cuándo salió el último parte. Sale con código 1 si encontró
 algo roto.
 
 | Síntoma | Causa más común |
 |---|---|
 | No contesta nada | Falta el Reload, o hay un error en el *Error log* de la pestaña Web |
 | Sólo contesta los comandos | Privacy mode encendido: apagalo y re-agregá el bot al grupo |
-| «Lo anoté a mano, no me salió pensar» | Gemini falló y entró el modo local. Casi siempre es la **cuota del modelo**: `doctor.py` te dice cuál |
-| Anota bien pero no entiende pedidos | Estás en modo local (sin key, o la cuota agotada): ahí los pedidos se reconocen por palabras clave, no siempre |
+| Anota raro o no separa bien | Gemini falló y entró el modo local. Casi siempre es la **cuota del modelo**: `doctor.py` te dice cuál |
+| El tablero no queda fijado | El bot no es admin con permiso de fijar. Funciona igual, pero como mensaje suelto |
+| Los menús quedan colgados | El cron no está corriendo: es el que limpia los mensajes temporales |
 | Mensajes encolados creciendo | La web app está caída y Telegram sigue reintentando |
 
 ---
 
-## Modo prueba (sin esperar a las 20:00)
+## Modo prueba (sin esperar al parte)
 
 ```bash
 python3 run_parte.py --forzar                      # dispara ahora mismo
-python3 run_parte.py --forzar --fecha 2026-10-04   # simula un domingo (con resumen)
+python3 run_parte.py --forzar --fecha 2026-10-04   # simula otro día
 ```
 
-También desde el grupo: `/recordatorios`.
+También desde el grupo: `/parte`.
 
 ---
 
@@ -501,7 +528,7 @@ También desde el grupo: `/recordatorios`.
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt pytest
 cp .env.example .env
-pytest                 # 563 tests, sin red ni API keys
+pytest                 # 388 tests, sin red ni API keys
 python app.py          # http://localhost:5000
 ```
 
@@ -549,7 +576,7 @@ python3 set_webhook.py https://notita.tudominio.com/telegram
 
 # cron de la VM. Si la VM está en la zona de tu casa, poné la hora tal cual;
 # si está en UTC, convertila (el default de Argentina son las 23:00 UTC).
-0 20 * * *  cd /opt/notita && /opt/notita/.venv/bin/python run_parte.py
+*/15 * * * *  cd /opt/notita && /opt/notita/.venv/bin/python run_parte.py
 ```
 
 Acá no hace falta `CRON_SECRET` ni la ruta `/cron/recordatorios`: con cron propio se
@@ -563,21 +590,23 @@ llama directo al script. Y `python3 doctor.py` sirve igual para verificar todo.
 install.py              instalador guiado: escribe el .env y enchufa el webhook
 doctor.py               diagnóstico: qué está mal y cómo se arregla
 app.py                  webhook Flask (lo que sirve PythonAnywhere)
-run_parte.py        rutina de las 20:00 (cron / scheduler / modo prueba)
+run_parte.py        el parte diario (cron / scheduler / modo prueba)
 set_webhook.py          alta, consulta y baja del webhook
 notita/
-  config.py             variables de entorno, zona horaria, quiénes viven en la casa
-  deps.py               avisa qué falta instalar, en castellano
-  demo.py               Telegram y Gemini de mentira para install.py --demo
-  pythonanywhere.py     detecta la web app, escribe el WSGI y la recarga
-  dates.py              fechas y recurrencias — módulo puro, con tests
-  db.py                 SQLite
-  llm.py                Gemini con responseSchema
-  heuristica.py         interpretación sin LLM (modo local y fallback)
-  telegram.py           cliente de la Bot API
-  handlers.py           mensajes, comandos y botones
-  reminders.py          recordatorios diarios y resumen semanal
-  views.py              textos y teclados
+  config.py             .env, personas, categorías, zona horaria
+  dates.py              TODA la aritmética de fechas y recurrencias
+  db.py                 SQLite: tareas, tablero, propuestas, deshacer, partes
+  telegram.py           cliente de la Bot API (con reintentos y cola de salida)
+  llm.py                Gemini: schema, prompt y parseo
+  heuristica.py         el modo local, sin LLM
+  handlers.py           qué hacer con cada mensaje y cada toque
+  tablero.py            el mensaje fijado que se edita en el lugar
+  menus.py              los menús temporales (⋯, secciones, súper)
+  propuestas.py         el texto propone, el botón ejecuta
+  parte.py              el parte diario (lo único programado)
+  calendario.py         el botón «Agregar al calendario»
+  cb.py                 el callback_data versionado
+  views.py              textos y formato
 tests/                  fechas, recurrencias, personas, LLM, instalador y flujo completo
 docs/demo/              arma un GIF de demo actuando la conversación de verdad
 .github/workflows/      CI: corre los tests en Python 3.10 y 3.13
@@ -613,17 +642,19 @@ lista, no hay que tocar el prompt.
 ### Lo que sí requiere trabajo
 
 **Está escrito en español rioplatense, y eso no es una variable de entorno.** Para usarlo
-en otro idioma hay que traducir los textos de `views.py`, `handlers.py` y `reminders.py`,
+en otro idioma hay que traducir los textos de `views.py`, `handlers.py`, `menus.py`,
+`propuestas.py`, `tablero.py` y `parte.py`,
 el prompt de `llm.py`, y —lo más laborioso— el parser de fechas de `dates.py` y las
 palabras clave de `heuristica.py`, que están en castellano. Es un trabajo de un rato
 largo, no de configuración.
 
-La **semana va de lunes a domingo** (relevante para «esta semana» y el resumen) y el
-**resumen semanal sale los domingos**; las dos cosas están en el código.
+La **semana va de lunes a domingo** (relevante para «esta semana» y para las secciones
+del tablero) y eso está en el código.
 
-## Fuera del MVP
+## Fuera del alcance
 
-Audios, WhatsApp y cualquier cosa que cueste plata.
+Audios, fotos, WhatsApp y cualquier cosa que cueste plata. Y, por decisión de diseño,
+los avisos a hora exacta: para eso está el botón de calendario.
 
 ### Licencia
 
