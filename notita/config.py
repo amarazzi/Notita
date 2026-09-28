@@ -72,6 +72,36 @@ def _version_de_packed_refs(git, ref: str) -> str:
 VERSION = _leer_version()
 
 
+def guardar_chat_id(nuevo: int) -> bool:
+    """Escribe el ALLOWED_CHAT_ID nuevo en el .env, sin tocar nada más.
+
+    Si no se puede (permisos, o no hay .env), se avisa en el grupo para que lo hagan
+    a mano: sin esto, al primer reinicio el bot se queda mudo.
+    """
+    import re
+
+    ruta = BASE_DIR / ".env"
+    try:
+        if not ruta.exists():
+            return False
+        texto = ruta.read_text(encoding="utf-8")
+        # Copia antes de tocarlo: es el archivo con los secretos de la casa. El .bak
+        # va con permisos restrictivos y está en el .gitignore.
+        respaldo = ruta.with_suffix(".env.bak" if ruta.suffix else ".bak")
+        respaldo.write_text(texto, encoding="utf-8")
+        respaldo.chmod(0o600)
+        linea = f"ALLOWED_CHAT_ID={nuevo}"
+        if re.search(r"^ALLOWED_CHAT_ID=.*$", texto, re.M):
+            texto = re.sub(r"^ALLOWED_CHAT_ID=.*$", linea, texto, count=1, flags=re.M)
+        else:
+            texto = texto.rstrip("\n") + f"\n{linea}\n"
+        ruta.write_text(texto, encoding="utf-8")
+        ruta.chmod(0o600)
+        return True
+    except OSError:
+        return False
+
+
 def version() -> str:
     """El commit que está corriendo. Lo muestra la web app en `/`."""
     return VERSION

@@ -503,6 +503,7 @@ algo roto.
 | Síntoma | Causa más común |
 |---|---|
 | No contesta nada | Falta el Reload, o hay un error en el *Error log* de la pestaña Web |
+| Se quedó mudo de golpe | Telegram convirtió el grupo en supergrupo (pasa al hacer admin a alguien) y le cambió el número. Notita se muda sola y te lo dice; si el aviso se perdió: `python3 migrar_chat.py EL_NUMERO_NUEVO` |
 | Sólo contesta los comandos | Privacy mode encendido: apagalo y re-agregá el bot al grupo |
 | Anota raro o no separa bien | Gemini falló y entró el modo local. Casi siempre es la **cuota del modelo**: `doctor.py` te dice cuál |
 | El tablero no queda fijado | El bot no es admin con permiso de fijar. Funciona igual, pero como mensaje suelto |
@@ -528,7 +529,7 @@ También desde el grupo: `/parte`.
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt pytest
 cp .env.example .env
-pytest                 # 388 tests, sin red ni API keys
+pytest                 # 395 tests, sin red ni API keys
 python app.py          # http://localhost:5000
 ```
 
@@ -591,6 +592,7 @@ install.py              instalador guiado: escribe el .env y enchufa el webhook
 doctor.py               diagnóstico: qué está mal y cómo se arregla
 app.py                  webhook Flask (lo que sirve PythonAnywhere)
 run_parte.py        el parte diario (cron / scheduler / modo prueba)
+migrar_chat.py      mudar todo si Telegram le cambia el número al grupo
 set_webhook.py          alta, consulta y baja del webhook
 notita/
   config.py             .env, personas, categorías, zona horaria

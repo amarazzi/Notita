@@ -50,5 +50,7 @@ def test_con_la_clave_correcta_corre_la_rutina(cliente, enviados):
     r = cliente.post("/cron/recordatorios", headers={"X-Cron-Secret": CLAVE})
     assert r.status_code == 200
     assert r.json["ok"] is True
-    assert "parte" in r.json["resultado"]
-    assert any("basura" in e.get("text", "") for e in enviados)
+    # El contenido y la hora del parte se prueban en test_v2_parte.py; acá importa
+    # que la ruta corra la rutina y devuelva su resumen (sin depender del reloj).
+    for clave in ("parte", "de_la_cola", "temporales"):
+        assert clave in r.json["resultado"], clave

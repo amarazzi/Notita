@@ -5,7 +5,7 @@ from zoneinfo import ZoneInfo
 import pytest
 import requests
 
-from notita import config, handlers, pythonanywhere, views
+from notita import config, db, handlers, pythonanywhere, views
 
 from .conftest import CHAT, SalidaAInternet
 
@@ -57,15 +57,24 @@ def test_los_textos_dicen_la_hora_configurada(monkeypatch):
 # El grupo que se convierte en supergrupo
 # --------------------------------------------------------------------------
 
-def test_si_el_grupo_cambia_de_numero_avisa(enviados):
-    """Telegram avisa una sola vez y el chat_id cambia para siempre."""
+def test_si_el_grupo_cambia_de_numero_se_muda(enviados, monkeypatch, tmp_path):
+    """Telegram avisa una sola vez y el chat_id cambia para siempre.
+
+    En v2 Notita se muda sola: si sólo cambiara el .env, las tareas quedarían con el
+    número viejo y el grupo nuevo arrancaría vacío.
+    """
+    monkeypatch.setattr(config, "BASE_DIR", tmp_path)
+    (tmp_path / ".env").write_text(f"ALLOWED_CHAT_ID={CHAT}\n")
+    db.crear_tarea(CHAT, "sacar la basura")
+
     handlers.handle_update({"message": {
         "chat": {"id": CHAT}, "from": {"id": 111}, "message_id": 1,
         "migrate_to_chat_id": -1009999999999}})
 
-    envio = [e for e in enviados if e["metodo"] == "sendMessage"][-1]
-    assert envio["chat_id"] == -1009999999999      # se avisa en el grupo nuevo
-    assert "ALLOWED_CHAT_ID=-1009999999999" in envio["text"]
+    envios = [e for e in enviados if e["metodo"] == "sendMessage"]
+    assert all(e["chat_id"] == -1009999999999 for e in envios), "todo al grupo nuevo"
+    assert any("Ya me mudé" in e["text"] for e in envios)
+    assert [r["texto"] for r in db.pendientes(-1009999999999)] == ["sacar la basura"]
 
 
 def test_un_aviso_de_migracion_de_otro_chat_se_ignora(enviados):

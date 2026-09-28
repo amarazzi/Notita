@@ -306,3 +306,102 @@ def test_la_bienvenida_cuenta_los_recados_descartados(enviados, casa_nueva, monk
 
     bienvenida = [t for t in textos(enviados) if "Notita cambió" in t][0]
     assert "2 recados" in bienvenida
+
+
+# --------------------------------------------------------------------------
+# Cuando Telegram convierte el grupo en supergrupo
+# --------------------------------------------------------------------------
+
+NUEVO_CHAT = -1003993284076
+
+
+def aviso_de_mudanza(nuevo=NUEVO_CHAT):
+    return {"update_id": 300,
+            "message": {"chat": {"id": CHAT, "type": "group"}, "from": {"id": 111},
+                        "message_id": 1, "migrate_to_chat_id": nuevo}}
+
+
+def test_al_convertirse_el_grupo_se_muda_con_las_tareas(enviados, monkeypatch, tmp_path):
+    """Lo que pasó de verdad: hacerlo admin convirtió el grupo.
+
+    Si sólo se cambiara el ALLOWED_CHAT_ID, las tareas quedarían guardadas con el
+    número viejo y el bot arrancaría vacío.
+    """
+    monkeypatch.setattr(config, "BASE_DIR", tmp_path)
+    (tmp_path / ".env").write_text(f"TELEGRAM_TOKEN=x\nALLOWED_CHAT_ID={CHAT}\n")
+    db.crear_tarea(CHAT, "sacar la basura", due=hoy())
+    db.crear_tarea(CHAT, "leche", tipo="compras", categoria="compras")
+
+    handlers.handle_update(aviso_de_mudanza())
+
+    assert [r["texto"] for r in db.pendientes(NUEVO_CHAT)] == ["sacar la basura", "leche"]
+    assert db.pendientes(CHAT) == [], "no quedó nada en el viejo"
+    assert config.ALLOWED_CHAT_ID == NUEVO_CHAT, "sigue contestando sin esperar el reload"
+    assert "ALLOWED_CHAT_ID" in (tmp_path / ".env").read_text()
+    assert f"ALLOWED_CHAT_ID={NUEVO_CHAT}" in (tmp_path / ".env").read_text()
+
+
+def test_al_mudarse_avisa_y_publica_el_tablero(enviados, monkeypatch, tmp_path):
+    monkeypatch.setattr(config, "BASE_DIR", tmp_path)
+    (tmp_path / ".env").write_text(f"ALLOWED_CHAT_ID={CHAT}\n")
+    db.crear_tarea(CHAT, "sacar la basura", due=hoy())
+
+    handlers.handle_update(aviso_de_mudanza())
+
+    salida = textos(enviados)
+    assert any("Ya me mudé" in t and "1</b> cosas" in t for t in salida)
+    assert any("La casa" in t for t in salida), "publica el tablero en el grupo nuevo"
+    assert db.tablero_actual(NUEVO_CHAT) is not None
+
+
+def test_si_no_puede_escribir_el_env_lo_dice(enviados, monkeypatch, tmp_path):
+    monkeypatch.setattr(config, "BASE_DIR", tmp_path)      # sin .env
+    handlers.handle_update(aviso_de_mudanza())
+
+    assert any("poné" in t and "ALLOWED_CHAT_ID" in t for t in textos(enviados))
+
+
+def test_mudarse_no_pisa_el_resto_del_env(monkeypatch, tmp_path):
+    monkeypatch.setattr(config, "BASE_DIR", tmp_path)
+    env = tmp_path / ".env"
+    env.write_text("TELEGRAM_TOKEN=secreto\nALLOWED_CHAT_ID=-100111\nCRON_SECRET=abc\n")
+
+    assert config.guardar_chat_id(NUEVO_CHAT) is True
+
+    texto = env.read_text()
+    assert "TELEGRAM_TOKEN=secreto" in texto
+    assert "CRON_SECRET=abc" in texto
+    assert texto.count("ALLOWED_CHAT_ID") == 1
+    assert oct(env.stat().st_mode)[-3:] == "600", "el .env sigue siendo privado"
+
+
+def test_migrar_chat_es_idempotente(enviados):
+    db.crear_tarea(CHAT, "sacar la basura", due=hoy())
+
+    db.migrar_chat(CHAT, NUEVO_CHAT)
+    db.migrar_chat(CHAT, NUEVO_CHAT)      # de nuevo: ya no hay nada que mover
+
+    assert len(db.pendientes(NUEVO_CHAT)) == 1
+
+
+def test_antes_de_tocar_el_env_hace_una_copia(monkeypatch, tmp_path):
+    """Es el archivo con los secretos de la casa: no se reescribe sin copia."""
+    monkeypatch.setattr(config, "BASE_DIR", tmp_path)
+    env = tmp_path / ".env"
+    original = "TELEGRAM_TOKEN=secreto\nALLOWED_CHAT_ID=-100111\n"
+    env.write_text(original)
+
+    config.guardar_chat_id(NUEVO_CHAT)
+
+    copias = [p for p in tmp_path.iterdir() if p.name.endswith(".bak")]
+    assert len(copias) == 1, "tiene que quedar una copia"
+    assert copias[0].read_text() == original
+    assert oct(copias[0].stat().st_mode)[-3:] == "600"
+
+
+def test_las_copias_del_env_estan_ignoradas_por_git():
+    import pathlib
+
+    ignorados = (pathlib.Path(__file__).resolve().parent.parent / ".gitignore").read_text()
+    assert ".env" in ignorados
+    assert ".bak" in ignorados

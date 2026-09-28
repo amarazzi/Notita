@@ -100,10 +100,7 @@ def _mensaje(msg: dict) -> None:
 
     nuevo = msg.get("migrate_to_chat_id")
     if nuevo and _autorizado(chat_id):
-        log.error("El grupo cambió de id: %s -> %s", chat_id, nuevo)
-        telegram.enviar(nuevo, "⚠️ Telegram convirtió este grupo y le cambió el número.\n"
-                               f"Poné <code>ALLOWED_CHAT_ID={nuevo}</code> en el "
-                               f"<code>.env</code> y recargá.")
+        _mudarse(chat_id, nuevo)
         return
 
     if not _autorizado(chat_id):
@@ -163,6 +160,29 @@ def _respuesta_a_notita(chat_id: int, msg: dict, texto: str, autor: str) -> bool
         telegram.enviar(chat_id, f"📅 {views.linea(fila)}", silencioso=True)
     tablero.actualizar(chat_id)
     return True
+
+
+def _mudarse(viejo: int, nuevo: int) -> None:
+    """Telegram convirtió el grupo en supergrupo y le cambió el número.
+
+    Pasa al hacer admin a alguien, por ejemplo. Se muda todo solo: si sólo se cambiara
+    el `.env`, las tareas quedarían guardadas con el número viejo y el bot arrancaría
+    vacío.
+    """
+    log.error("El grupo cambió de id: %s -> %s", viejo, nuevo)
+    movidas = db.migrar_chat(viejo, nuevo)
+    cuantas = movidas.get("tasks", 0)
+    config.ALLOWED_CHAT_ID = nuevo          # para no quedar mudo hasta el reload
+    guardado = config.guardar_chat_id(nuevo)
+
+    partes = ["📦 Telegram convirtió el grupo y le cambió el número. Ya me mudé."]
+    if cuantas:
+        partes.append(f"Traje las <b>{cuantas}</b> cosas que teníamos anotadas 🤍")
+    if not guardado:
+        partes.append(f"<b>Ojo:</b> poné <code>ALLOWED_CHAT_ID={nuevo}</code> en el "
+                      f"<code>.env</code> y recargá, o cuando reinicie me pierdo.")
+    telegram.enviar(nuevo, "\n".join(partes))
+    tablero.publicar(nuevo)
 
 
 def _comando(chat_id: int, texto: str, autor: str) -> None:
