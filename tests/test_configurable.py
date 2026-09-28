@@ -81,7 +81,10 @@ def test_un_aviso_de_migracion_de_otro_chat_se_ignora(enviados):
     handlers.handle_update({"message": {
         "chat": {"id": -100777}, "from": {"id": 111}, "message_id": 1,
         "migrate_to_chat_id": -1009999999999}})
-    assert enviados == []
+
+    # Puede registrar el menú de comandos (es del bot, no del chat), pero no manda
+    # ni un mensaje ni mueve nada.
+    assert [e["metodo"] for e in enviados if e["metodo"] != "setMyCommands"] == []
 
 
 # --------------------------------------------------------------------------

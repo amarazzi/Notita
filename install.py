@@ -29,7 +29,7 @@ deps.exigir("requests")  # antes de importarlas, para poder avisar bien
 
 import requests  # noqa: E402
 
-from notita import config, llm, pythonanywhere  # noqa: E402
+from notita import config, llm, pythonanywhere, telegram  # noqa: E402
 from notita.config import Persona, slugificar  # noqa: E402
 
 TG = "https://api.telegram.org/bot{token}/{metodo}"
@@ -483,6 +483,8 @@ def paso_webhook(token: str, url: str, secret: str, chat_id: int,
         aviso("Sin URL no hay webhook. Cuando tengas la web app andando, corré:")
         dato("python3 set_webhook.py https://TU_USUARIO.pythonanywhere.com/telegram")
         return
+    tg(token, "setMyCommands", commands=[
+        {"command": c, "description": d} for c, d in telegram.COMANDOS])
     bien, res = tg(token, "setWebhook", url=url, secret_token=secret,
                    allowed_updates=["message", "edited_message", "callback_query"],
                    drop_pending_updates=True)

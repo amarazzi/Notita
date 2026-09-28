@@ -195,6 +195,22 @@ def fijar(chat_id: int, message_id: int) -> dict | None:
                   disable_notification=True)
 
 
+# El menú que aparece al escribir «/» en Telegram. Estaba vacío: nadie se enteraba
+# de que existían los comandos si no leía /ayuda.
+COMANDOS = (
+    ("tablero", "Publica el tablero al final del chat"),
+    ("super", "La lista del súper"),
+    ("parte", "Manda el parte de hoy ahora mismo"),
+    ("ayuda", "Cómo funciona Notita"),
+)
+
+
+def registrar_comandos() -> bool:
+    """Deja el menú «/» con los comandos de esta versión."""
+    lista = [{"command": c, "description": d} for c, d in COMANDOS]
+    return llamar("setMyCommands", commands=lista) is not None
+
+
 def desfijar(chat_id: int, message_id: int) -> dict | None:
     return llamar("unpinChatMessage", chat_id=chat_id, message_id=message_id)
 

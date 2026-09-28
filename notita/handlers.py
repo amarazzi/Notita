@@ -59,6 +59,17 @@ SERVICIO = (
     "video_chat_participants_invited", "successful_payment",
 )
 
+# Comandos de v1 que ya no existen. Decir dónde está eso ahora es más útil que
+# «no lo tengo», sobre todo porque quedaron en el historial del grupo.
+JUBILADOS = {
+    "algundia": "«Algún día» ahora es una sección del tablero 📋 Tocá /tablero y "
+                "después el botón <b>Algún día</b>.",
+    "recordatorios": "Eso ahora es el parte de la noche: /parte lo manda al toque.",
+    "probar": "Eso ahora es /parte 🤍",
+    "resumen": "El resumen semanal ya no existe: ahora hay un parte todos los días. "
+               "Mirá /parte.",
+}
+
 # Entre estas horas, "mañana" es el día calendario actual: a las 00:40 nadie piensa
 # en el día siguiente.
 MADRUGADA_HASTA = 5
@@ -67,6 +78,7 @@ MADRUGADA_HASTA = 5
 def handle_update(update: dict) -> None:
     db.init_db()
     telegram.vaciar_cola()
+    _comandos_al_dia()
 
     clave = _clave_de(update)
     if not db.update_nuevo(clave):
@@ -223,6 +235,8 @@ def _comando(chat_id: int, texto: str, autor: str) -> None:
         telegram.enviar(chat_id, views.ayuda())
     elif comando == "parte":
         parte.correr(chat_id, forzar=True)
+    elif comando in JUBILADOS:
+        telegram.enviar(chat_id, JUBILADOS[comando], silencioso=True)
     else:
         telegram.enviar(chat_id, "Ese comando no lo tengo. Probá /ayuda 🤍",
                         silencioso=True)
@@ -856,6 +870,18 @@ def _mandar_ics(chat_id: int, cq_id: str, item_id: int | None) -> None:
 # --------------------------------------------------------------------------
 # Bienvenida de v2
 # --------------------------------------------------------------------------
+
+def _comandos_al_dia() -> None:
+    """Registra el menú «/» cuando cambia la versión.
+
+    Los comandos cambian entre versiones y nadie se acuerda de actualizarlos a mano:
+    el menú de Telegram estuvo vacío desde el primer día.
+    """
+    if db.ajuste("comandos") == config.VERSION:
+        return
+    if telegram.registrar_comandos():
+        db.ajuste("comandos", config.VERSION)
+
 
 def _bienvenida_si_hace_falta(chat_id: int) -> None:
     if db.ajuste("bienvenida_v2"):

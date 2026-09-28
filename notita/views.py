@@ -153,9 +153,12 @@ AYUDA = """Soy <b>Notita</b> 🧲 y así nos entendemos:
 • «pagar el ABL todos los 10» → se repite sola 🔁
 
 <b>Para manejar lo anotado, tocá</b>
-El <b>tablero</b> está fijado arriba del grupo. Cada tarea tiene ✅ para darla por
-hecha y <b>⋯</b> para todo lo demás: cambiarle el día, quién la hace, el nombre,
-mandarla al súper o borrarla.
+El <b>tablero</b> está fijado arriba del grupo:
+• <b>✅</b> en cada tarea la da por hecha, de un toque.
+• <b>⋯ Cambiar algo</b> para el resto: el día, quién la hace, el nombre, mandarla
+  al súper, borrarla o pasarla al calendario.
+• <b>↩️ Deshacer</b> aparece un rato después de tachar, por si no era esa.
+• Las secciones con <b>›</b> (Esta semana, Algún día, Súper) se abren aparte.
 
 Si me pedís algo por texto («ya compré la leche», «pasá lo del horno al domingo»),
 te lo propongo con botones y vos confirmás. Nunca toco nada sin que alguien toque.
@@ -169,7 +172,7 @@ No aviso a horas exactas: para eso, el botón 📅 <b>Agregar al calendario</b> 
 aparece cuando algo tiene hora. Y para cambiarle el ritmo a una tarea que se repite,
 borrala y anotala de nuevo.
 
-Comandos: /tablero · /super · /ayuda · /parte"""
+Comandos: /tablero · /super · /parte · /ayuda"""
 
 
 def ayuda() -> str:

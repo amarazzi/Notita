@@ -116,10 +116,14 @@ A las 20:00 (configurable) llega el único mensaje que suena:
 ```
 /tablero   publica el tablero al final del chat y lo fija (también: escribir «tablero»)
 /super     la lista del súper, con botones para tachar
-/ayuda     cómo usarlo
 /parte     manda el parte a mano (modo prueba)
+/ayuda     cómo usarlo
 /chatid    devuelve el chat_id (sirve para configurarlo la primera vez)
 ```
+
+Los cuatro primeros quedan registrados en el menú **«/»** de Telegram, así que
+aparecen solos al escribir una barra. Se actualizan solos cuando cambia la versión.
+Los comandos de v1 (`/algundia`, `/recordatorios`) contestan dónde está eso ahora.
 
 Categorías: `limpieza`, `arreglos`, `tramites`, `pagos`, `mascotas`, `compras`, `otros`.
 
@@ -540,7 +544,7 @@ También desde el grupo: `/parte`.
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt pytest
 cp .env.example .env
-pytest                 # 428 tests, sin red ni API keys
+pytest                 # 437 tests, sin red ni API keys
 python app.py          # http://localhost:5000
 ```
 

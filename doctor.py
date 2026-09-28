@@ -20,7 +20,7 @@ deps.exigir("requests")  # antes de importarlas, para poder avisar bien
 
 import requests  # noqa: E402
 
-from notita import config, db, llm  # noqa: E402
+from notita import config, db, llm, telegram  # noqa: E402
 
 TG = "https://api.telegram.org/bot{token}/{metodo}"
 
@@ -126,7 +126,25 @@ def revisar_bot() -> dict | None:
         mal("privacy mode ENCENDIDO: sólo va a leer los comandos",
             "@BotFather → /mybots → Bot Settings → Group Privacy → Turn off, "
             "y después sacá y volvé a agregar el bot al grupo")
+    _revisar_comandos()
     return yo
+
+
+def _revisar_comandos() -> None:
+    """El menú que aparece al escribir «/». Estuvo vacío desde el primer día."""
+    bien, registrados = tg("getMyCommands")
+    if not bien:
+        return
+    nombres = {c["command"] for c in registrados or []}
+    faltan = {c for c, _ in telegram.COMANDOS} - nombres
+    if not registrados:
+        aviso("el menú de comandos de Telegram está vacío",
+              "se registra solo con el primer mensaje; o corré set_webhook.py")
+    elif faltan:
+        aviso(f"faltan comandos en el menú: {', '.join(sorted(faltan))}",
+              "se actualiza solo con el primer mensaje que reciba")
+    else:
+        ok(f"el menú «/» tiene los {len(nombres)} comandos")
 
 
 def revisar_webhook() -> None:

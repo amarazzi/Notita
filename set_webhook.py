@@ -41,6 +41,7 @@ def main() -> None:
         drop_pending_updates=True,
     )
     print("Webhook:", res)
+    print("Comandos del menú «/»:", telegram.registrar_comandos())
     print(json.dumps(telegram.llamar("getWebhookInfo"), indent=2, ensure_ascii=False))
 
 

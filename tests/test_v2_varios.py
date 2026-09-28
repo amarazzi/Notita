@@ -588,3 +588,71 @@ def test_el_arreglo_corre_aunque_la_base_ya_hubiera_migrado(tmp_path, monkeypatc
                  for f in tabla.execute("PRAGMA table_info(updates_vistos)")}
     assert tipos["update_id"] == "TEXT", "el arreglo tiene que correr igual"
     assert db.update_nuevo("cb:1044983470193328") is True
+
+
+# --------------------------------------------------------------------------
+# Los comandos y la ayuda
+# --------------------------------------------------------------------------
+
+COMANDOS_REALES = ("tablero", "super", "parte", "ayuda")
+
+
+@pytest.mark.parametrize("comando", COMANDOS_REALES)
+def test_todos_los_comandos_de_la_ayuda_existen(comando, enviados):
+    from notita import views
+
+    assert f"/{comando}" in views.ayuda(), "la ayuda lo nombra"
+
+    handlers.handle_update(mensaje(f"/{comando}", update_id=hash(comando) % 10000))
+
+    assert enviados, f"/{comando} no contestó nada"
+    assert not [t for t in textos(enviados) if "no lo tengo" in t]
+
+
+def test_el_menu_de_telegram_tiene_los_mismos():
+    from notita import telegram, views
+
+    registrados = {c for c, _ in telegram.COMANDOS}
+    assert registrados == set(COMANDOS_REALES)
+    for comando, descripcion in telegram.COMANDOS:
+        assert descripcion and len(descripcion) <= 60, comando
+        assert f"/{comando}" in views.ayuda()
+
+
+def test_los_comandos_se_registran_solos_al_cambiar_de_version(enviados, monkeypatch):
+    """El menú «/» estuvo vacío desde el primer día porque nadie lo registraba."""
+    responde(monkeypatch, intencion="charla", comentario="hola")
+
+    handlers.handle_update(mensaje("hola", update_id=1))
+
+    assert any(e["metodo"] == "setMyCommands" for e in enviados)
+    assert db.ajuste("comandos") == config.VERSION
+
+    enviados.clear()
+    handlers.handle_update(mensaje("hola de nuevo", update_id=2))
+    assert not [e for e in enviados if e["metodo"] == "setMyCommands"], "una sola vez"
+
+
+def test_los_comandos_viejos_dicen_donde_esta_eso_ahora(enviados):
+    handlers.handle_update(mensaje("/algundia", update_id=10))
+    handlers.handle_update(mensaje("/recordatorios", update_id=11))
+
+    salida = textos(enviados)
+    assert "sección del tablero" in salida[0]
+    assert "/parte" in salida[1]
+    assert not [t for t in salida if "no lo tengo" in t]
+
+
+def test_la_ayuda_describe_el_tablero_de_hoy():
+    from notita import views
+
+    texto = views.ayuda()
+    for pista in ("⋯ Cambiar algo", "↩️ Deshacer", "✅", "tablero", "calendario"):
+        assert pista in texto, pista
+    # Y ya no promete el ⋯ al lado de cada tarea, que se sacó.
+    assert "y <b>⋯</b> para todo lo demás" not in texto
+
+
+def test_un_comando_inventado_sigue_contestando(enviados):
+    handlers.handle_update(mensaje("/floripondio", update_id=12))
+    assert "no lo tengo" in textos(enviados)[0]
