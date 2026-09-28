@@ -14,6 +14,12 @@ from .conftest import CHAT
 from .test_v2_captura import botones, click, mensaje, responde, textos
 
 
+def _resultado_de_la_propuesta(enviados) -> str:
+    """La edición del mensaje de la propuesta, sin confundirla con la del tablero."""
+    return [e["text"] for e in enviados if e["metodo"] == "editMessageText"
+            and "La casa" not in e["text"]][-1]
+
+
 def sembrar_super():
     return {
         "leche": db.crear_tarea(CHAT, "leche", tipo="compras", categoria="compras"),
@@ -51,7 +57,7 @@ def test_al_tocar_las_dos_se_tachan_las_dos(enviados, monkeypatch):
     handlers.handle_update(click(boton["callback_data"]))
 
     assert db.pendientes(CHAT, tipo="compras") == []
-    resultado = [e["text"] for e in enviados if e["metodo"] == "editMessageText"][-1]
+    resultado = _resultado_de_la_propuesta(enviados)
     assert "Tachadas" in resultado
 
 
@@ -78,7 +84,7 @@ def test_si_una_ya_estaba_tachada_lo_dice(enviados, monkeypatch):
 
     handlers.handle_update(click(boton["callback_data"]))
 
-    resultado = [e["text"] for e in enviados if e["metodo"] == "editMessageText"][-1]
+    resultado = _resultado_de_la_propuesta(enviados)
     assert "Lavandina" in resultado
     assert "ya la había tachado Barbu" in resultado
     assert db.pendientes(CHAT, tipo="compras") == []
@@ -94,8 +100,7 @@ def test_el_no_no_toca_nada(enviados, monkeypatch):
     handlers.handle_update(click(boton["callback_data"]))
 
     assert len(db.pendientes(CHAT, tipo="compras")) == 2
-    assert "no toqué nada" in [e["text"] for e in enviados
-                               if e["metodo"] == "editMessageText"][-1]
+    assert "no toqué nada" in _resultado_de_la_propuesta(enviados)
 
 
 def test_una_propuesta_vencida_no_se_ejecuta(enviados, monkeypatch):

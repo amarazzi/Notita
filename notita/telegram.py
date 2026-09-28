@@ -34,6 +34,9 @@ def llamar(metodo: str, **payload) -> dict | None:
         log.error("Falta TELEGRAM_TOKEN")
         return None
     archivo = payload.pop("_archivo", None)
+    # Se limpia al entrar: si no, un «message is not modified» de hace rato hacía leer
+    # el próximo fallo como si también lo fuera, y el tablero no se republicaba nunca.
+    _ULTIMO_ERROR["descripcion"] = ""
     url = API.format(token=config.TELEGRAM_TOKEN, method=metodo)
     for intento in range(1, INTENTOS + 1):
         try:

@@ -47,6 +47,9 @@ def entorno(tmp_path, monkeypatch):
         return {"message_id": len(enviados), "chat": {"id": payload.get("chat_id")}}
 
     monkeypatch.setattr(telegram, "llamar", fake_llamar)
+    # Estado de módulo: si no se limpia, el «not modified» de un test se le cuela al
+    # siguiente (y ahí el tablero nunca se republica).
+    telegram._ULTIMO_ERROR.clear()
     yield enviados
 
     config.definir_personas(originales)

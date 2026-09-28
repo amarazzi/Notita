@@ -153,10 +153,14 @@ Es el único envío programado y el único con notificación.
    *palabras* con las que nombraron cada cosa y el servidor las resuelve contra la base
    con el matcher que ya existe. El resultado visible es el mismo y el modelo no puede
    inventar un id.
-3. **El debounce del tablero es por update, no por temporizador.** No hay forma
-   confiable de programar un timer en un worker de PythonAnywhere. Se edita como mucho
-   una vez por update, al final; si la última edición fue hace menos de 3 segundos, se
-   marca `sucio` y lo flushea el próximo evento (update o cron).
+3. ~~**El debounce del tablero es por update, no por temporizador.**~~ **Revertido con
+   el uso real.** Había un debounce de 3 segundos para no golpear los límites de
+   Telegram, y el efecto fue peor que el problema: el tablero se acababa de publicar,
+   así que el primer ✅ caía dentro de esos 3 segundos, la edición se posponía y el
+   tablero seguía mostrando la tarea que ya estaba hecha. Se tocaba el botón y «no
+   pasaba nada». Ahora se edita siempre, al final de cada update: un tablero que miente
+   es mucho peor que una llamada de más, y el ritmo de los toques lo pone un dedo. Si
+   la edición falla, queda `sucio` y lo reintenta el próximo evento.
 4. **`updates_vistos` guarda también los `callback_query.id`**, con el mismo mecanismo
    (el INSERT es la guarda). Son strings, así que la columna pasa a TEXT.
 5. **Los force_reply (renombrar, escribir fecha) usan la tabla `pending` que ya existe**,

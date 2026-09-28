@@ -7,8 +7,12 @@ Reglas que valen la pena tener a mano:
   «la semana que viene»).
 - El tablero NUNCA navega: los menús son mensajes nuevos. Son dos personas mirando la
   misma pantalla; si uno abriera un submenú acá, al otro le cambiaría lo que ve.
-- Se edita como mucho una vez por update. Si la última edición fue hace menos de
-  `DEBOUNCE`, se marca sucio y lo flushea el próximo evento (update o cron).
+- Se edita al final de cada update, siempre. Tuvo un debounce de 3 segundos para no
+  golpear los límites de Telegram, y fue un error: un toque entraba en esos 3
+  segundos y el tablero se quedaba mostrando la tarea que ya estaba hecha hasta el
+  próximo mensaje. Un tablero que miente es mucho peor que una llamada de más, y un
+  toque es una acción humana: el ritmo lo pone el dedo, no el código.
+- Si la edición falla, queda marcado sucio y lo reintenta el próximo evento.
 """
 from __future__ import annotations
 
@@ -20,7 +24,6 @@ from .dates import ahora, de_iso, domingo_de_la_semana, hoy
 
 log = logging.getLogger("notita.tablero")
 
-DEBOUNCE = 3            # segundos entre ediciones
 # El ✅ se lleva la fila entera: es lo que más se toca y un blanco grande evita
 # tacharle la tarea equivocada al otro. Con media fila, Telegram cortaba los títulos
 # al medio («Tr...laves Allen»).
@@ -180,14 +183,14 @@ def etiqueta(row, ref: date, largo: int = LARGO_BOTON,
 # --------------------------------------------------------------------------
 
 def actualizar(chat_id: int, forzar: bool = False) -> bool:
-    """Edita el tablero en el lugar. Devuelve True si se editó."""
+    """Edita el tablero en el lugar. Devuelve True si se editó.
+
+    `forzar` quedó por compatibilidad con los llamadores: hoy siempre se edita.
+    """
+    del forzar
     guardado = db.tablero_actual(chat_id)
     if not guardado or not guardado["message_id"]:
         return publicar(chat_id) is not None
-
-    if not forzar and _muy_seguido(guardado):
-        db.marcar_tablero_sucio(chat_id)
-        return False
 
     texto, teclado = render(chat_id)
     r = telegram.editar(chat_id, guardado["message_id"], texto, teclado, encolar=False)
@@ -221,7 +224,9 @@ def publicar(chat_id: int, borrar_anterior: bool = True,
         actualizar(chat_id, forzar=True)
         return anterior["message_id"]
     texto, teclado = render(chat_id)
-    enviado = telegram.enviar(chat_id, texto, teclado, silencioso=True)
+    # `encolar=False`: un tablero en la cola de salida sería una foto vieja mandada
+    # más tarde, y encima como mensaje nuevo. Si falla, queda sucio y se rearma.
+    enviado = telegram.enviar(chat_id, texto, teclado, silencioso=True, encolar=False)
     if enviado is None:
         db.marcar_tablero_sucio(chat_id)
         return None
@@ -261,10 +266,6 @@ def _hace_cuanto(guardado) -> float:
         return (ahora() - datetime.fromisoformat(editado)).total_seconds()
     except ValueError:
         return 1e9
-
-
-def _muy_seguido(guardado) -> bool:
-    return _hace_cuanto(guardado) < DEBOUNCE
 
 
 def flushear_si_esta_sucio(chat_id: int) -> bool:

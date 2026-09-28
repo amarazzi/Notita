@@ -219,17 +219,44 @@ def test_sin_permiso_de_fijar_avisa_una_sola_vez(enviados, monkeypatch, casa_nue
     assert len(avisos) == 1
 
 
-def test_el_debounce_marca_sucio_y_el_cron_lo_flushea(enviados):
-    db.crear_tarea(CHAT, "sacar la basura", due=hoy())
-    tablero.actualizar(CHAT, forzar=True)     # deja `editado_en` recién ahora
+def test_cada_toque_refresca_el_tablero_al_instante(enviados):
+    """Tuvo un debounce de 3 segundos y fue un error: el tablero se acababa de
+
+    publicar, así que el primer ✅ caía dentro de esos 3 segundos, la edición se
+    posponía y el tablero seguía mostrando la tarea ya hecha. Se tocaba el botón y
+    «no pasaba nada».
+    """
+    a = db.crear_tarea(CHAT, "sacar la basura", due=hoy())
+    b = db.crear_tarea(CHAT, "limpiar el horno", due=hoy())
+    tablero.publicar(CHAT)
     enviados.clear()
 
-    assert tablero.actualizar(CHAT) is False, "no edita dos veces en 3 segundos"
+    handlers.handle_update(click(cb.armar("ok", a), cq_id="uno"))
+    handlers.handle_update(click(cb.armar("ok", b), cq_id="dos"))
+
+    ediciones = [e["text"] for e in enviados if e["metodo"] == "editMessageText"]
+    assert len(ediciones) == 2, "una por toque, sin posponer nada"
+    assert "Sacar la basura" not in ediciones[0]
+    assert "No hay nada pendiente" in ediciones[1]
+
+
+def test_si_la_edicion_falla_queda_sucio_y_el_cron_lo_flushea(enviados, monkeypatch):
+    db.crear_tarea(CHAT, "sacar la basura", due=hoy())
+    caido = {"si": True}
+
+    def a_veces(metodo, **payload):
+        enviados.append({"metodo": metodo, **payload})
+        if caido["si"] and metodo in ("editMessageText", "sendMessage"):
+            return None
+        return {"message_id": 5}
+
+    monkeypatch.setattr(telegram, "llamar", a_veces)
+    assert tablero.actualizar(CHAT) is False
     assert db.tablero_actual(CHAT)["sucio"] == 1
 
-    with db.conn() as c:                      # como si hubiera pasado el rato
-        c.execute("UPDATE tablero SET editado_en = '2020-01-01T00:00:00-03:00'")
+    caido["si"] = False
     assert tablero.flushear_si_esta_sucio(CHAT) is True
+    assert db.tablero_actual(CHAT)["sucio"] == 0
 
 
 # --------------------------------------------------------------------------
