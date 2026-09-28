@@ -3,11 +3,11 @@
 El principio 2: un pedido de modificación por texto NO se ejecuta. Si el LLM
 entendió mal, no pasa nada hasta que alguien toca un botón.
 """
-from datetime import date, timedelta
+from datetime import timedelta
 
 import pytest
 
-from notita import cb, config, db, handlers, llm, propuestas
+from notita import config, db, handlers, llm
 from notita.dates import hoy
 
 from .conftest import CHAT

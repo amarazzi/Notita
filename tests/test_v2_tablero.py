@@ -11,7 +11,7 @@ from notita import cb, db, handlers, menus, tablero, telegram
 from notita.dates import hoy
 
 from .conftest import CHAT
-from .test_v2_captura import botones, click, mensaje, textos
+from .test_v2_captura import click, textos
 
 # Un lunes, para poder correr la semana entera.
 LUNES = date(2026, 9, 28)

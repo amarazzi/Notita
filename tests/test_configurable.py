@@ -1,5 +1,4 @@
 """Lo que antes estaba cableado al caso de esta casa y ahora se configura."""
-from datetime import timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
 

@@ -7,11 +7,11 @@ from datetime import date, datetime, time, timedelta
 
 import pytest
 
-from notita import cb, config, db, handlers, parte, telegram
+from notita import cb, config, db, handlers, parte
 from notita.dates import hoy
 
 from .conftest import CHAT
-from .test_v2_captura import botones, click, textos
+from .test_v2_captura import click, textos
 
 SABADO = date(2026, 9, 26)
 

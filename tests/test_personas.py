@@ -1,7 +1,7 @@
 """Tests de quiénes viven en la casa: la config admite cualquier cantidad de personas."""
 import pytest
 
-from notita import config, db, llm, parte, views
+from notita import config, db, llm, views
 from notita.config import Persona, parsear_personas, slugificar
 from notita.dates import hoy
 

@@ -4,8 +4,8 @@ from urllib.parse import parse_qs, urlparse
 
 import pytest
 
-from notita import calendario, cb, config, db, handlers, menus, telegram, views
-from notita.dates import Recurrencia, hoy, proxima_ocurrencia
+from notita import calendario, cb, config, db, handlers, views
+from notita.dates import Recurrencia, hoy
 
 from .conftest import CHAT
 from .test_v2_captura import botones, click, item, mensaje, responde, textos

@@ -4,11 +4,11 @@ El principio 4 de v2 («todo lo que Notita dice es verdad») nació de este bug 
 «comprar la cómoda para la habitación mañana» contestó «Anotado · Cómoda para la
 habitación · al súper», y el /super siguiente decía que la lista estaba vacía.
 """
-from datetime import date, datetime, timedelta
+from datetime import timedelta
 
 import pytest
 
-from notita import config, db, handlers, llm, tablero
+from notita import db, handlers, llm
 from notita.dates import hoy
 
 from .conftest import CHAT
