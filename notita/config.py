@@ -110,6 +110,17 @@ def version() -> str:
 # Si el parte se manda igual cuando no hay nada para contar.
 PARTE_VACIO = os.getenv("NOTITA_PARTE_VACIO", "1").strip() not in ("0", "no", "false")
 
+# Notas de voz. Prendido por defecto (necesita key de Gemini igual): se apaga con 0.
+# OJO: el audio se le manda a Google. Ver la sección de privacidad del README.
+AUDIOS = os.getenv("NOTITA_AUDIOS", "1").strip() not in ("0", "no", "false")
+
+# Tope de duración. No es por cuota (un audio de 15s son ~400 tokens) sino por la
+# espera: transcribir 14 segundos tardó 20 en las pruebas.
+try:
+    AUDIO_SEGUNDOS = max(1, int(os.getenv("NOTITA_AUDIO_SEGUNDOS", "15")))
+except ValueError:
+    AUDIO_SEGUNDOS = 15
+
 # De dónde sale el botón «Agregar al calendario»: google (link) o ics (archivo).
 CALENDARIO = os.getenv("NOTITA_CALENDARIO", "google").strip().lower()
 

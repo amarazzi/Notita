@@ -31,6 +31,7 @@ ninguna modificación se ejecuta sin que alguien toque un botón
 | Lista del súper | «falta leche» va al súper. Un mueble o algo de ferretería es tarea, aunque diga «comprar» |
 | Recurrentes | «cambiar las piedritas cada semana», «regar cada 3 días» 🔁 |
 | Recados | «decile a Barbu que ya salí» → se lo dice en el momento, mencionándola |
+| Notas de voz 🎤 | Le mandás un audio de hasta 15 segundos y lo transcribe. Siempre muestra lo que escuchó, así se ve si entendió mal ([privacidad](#privacidad)) |
 | Madrugada | a las 00:40, «mañana» es hoy (y te da un botón para corregirlo si no) |
 | Nunca bloquea | si algo no se entiende o la fecha no existe, lo guarda igual y ofrece corregir |
 | Nunca miente | la confirmación se arma leyendo la base. Si no se pudo guardar, lo dice |
@@ -105,6 +106,7 @@ A las 20:00 (configurable) llega el único mensaje que suena:
 
 ### Lo que NO hace
 
+- **No entiende fotos ni videos.** Audios sí, de hasta 15 segundos.
 - **No avisa a horas exactas.** Un cron gratuito no da esa garantía, así que para los
   turnos te da un botón **📅 Agregar al calendario** (Google Calendar o un `.ics`).
 - **No manda recados para más tarde.** «Decile mañana que compre pan» se convierte en
@@ -460,6 +462,8 @@ GEMINI_MODEL=gemini-flash-lite-latest
 | `NOTITA_HORA` | Opcional: a qué hora corre la rutina. Por defecto `20:00` |
 | `NOTITA_CRON_MINUTOS` | Opcional: cada cuántos minutos corre el cron. Se recomienda `15` |
 | `NOTITA_CALENDARIO` | Opcional: `google` (link) o `ics` (archivo). Por defecto `google` |
+| `NOTITA_AUDIOS` | Opcional: `0` para no transcribir notas de voz. Por defecto `1` |
+| `NOTITA_AUDIO_SEGUNDOS` | Opcional: tope de duración de un audio. Por defecto `15` |
 | `NOTITA_PARTE_VACIO` | Opcional: `0` para que no mande el parte cuando no hay nada |
 | `CRON_SECRET` | Habilita `/cron/recordatorios` (opción B). **Vacío = ruta apagada** |
 | `GEMINI_API_KEY` | La key de Google AI Studio |
@@ -469,6 +473,34 @@ GEMINI_MODEL=gemini-flash-lite-latest
 Después de tocar el `.env` hay que hacer **Reload** de la web app.
 El `.env` tiene secretos: `install.py` lo escribe con permisos `600` y está en el
 `.gitignore`, no lo subas al repo.
+
+---
+
+## Privacidad
+
+Vale la pena tenerlo claro antes de instalarlo en casa.
+
+**Lo que sale de tu servidor:** si configurás `GEMINI_API_KEY`, cada mensaje del grupo
+se le manda a Google para interpretarlo, y cada nota de voz se le manda **el audio
+entero**. Nada más: las tareas viven en un SQLite en tu servidor y no se comparten con
+nadie.
+
+**Lo que Google hace con eso:** en la **capa gratuita**, Google dice explícitamente que
+puede usar el contenido para mejorar sus productos, y que personas pueden revisarlo.
+En la capa paga, no. O sea: si te importa, o pagás la API, o usás el modo local.
+
+**La voz es otra categoría de dato.** Un mensaje escrito es lo que alguien decidió
+escribir; un audio lleva el tono, quién más se escucha de fondo y la conversación de al
+lado. Por eso el audio:
+
+- se puede apagar solo, con `NOTITA_AUDIOS=0` (el resto sigue funcionando);
+- tiene un tope de 15 segundos;
+- **no existe en modo local**: sin key de Gemini, Notita contesta que no entiende audios.
+
+**Si no querés que nada salga de tu casa:** dejá `GEMINI_API_KEY` vacío. Notita anda en
+[modo local](#modo-local-sin-gemini) con reglas en castellano: interpreta peor los
+mensajes largos, pero el tablero, los botones, las fechas y el parte funcionan igual, y
+no le manda nada a nadie.
 
 ---
 
@@ -544,7 +576,7 @@ También desde el grupo: `/parte`.
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt pytest
 cp .env.example .env
-pytest                 # 447 tests, sin red ni API keys
+pytest                 # 466 tests, sin red ni API keys
 python app.py          # http://localhost:5000
 ```
 
@@ -622,6 +654,7 @@ notita/
   propuestas.py         el texto propone, el botón ejecuta
   parte.py              el parte diario (lo único programado)
   calendario.py         el botón «Agregar al calendario»
+  audio.py              notas de voz: tope, aviso y transcripción
   cb.py                 el callback_data versionado
   views.py              textos y formato
 tests/                  fechas, recurrencias, personas, LLM, instalador y flujo completo

@@ -245,8 +245,8 @@ def test_el_31_de_febrero_queda_para_algun_dia_y_lo_dice(enviados, monkeypatch):
     assert any("Elegir día" in b["text"] for b in botones(enviados))
 
 
-@pytest.mark.parametrize("clave", ["voice", "photo", "sticker", "document"])
-def test_audios_y_fotos_no_crean_nada(enviados, clave):
+@pytest.mark.parametrize("clave", ["photo", "sticker", "document", "video"])
+def test_fotos_y_archivos_no_crean_nada(enviados, clave):
     update = {"update_id": 5, "message": {"chat": {"id": CHAT, "type": "group"},
                                           "from": {"id": 111}, "message_id": 3,
                                           clave: {"file_id": "x"}}}

@@ -31,8 +31,12 @@ ACCIONES = {
 
 
 def ofrecer(chat_id: int, accion: str, candidatos: list, extra: dict | None = None,
-            ref: date | None = None) -> bool:
-    """Guarda la propuesta y la muestra con botones. No ejecuta nada."""
+            ref: date | None = None, prefijo: str = "") -> bool:
+    """Guarda la propuesta y la muestra con botones. No ejecuta nada.
+
+    `prefijo` es el renglón «🎤 «…»» cuando el pedido vino por audio: importa ver qué
+    se escuchó antes de confirmar algo.
+    """
     ref = ref or hoy()
     if not candidatos:
         return False
@@ -46,9 +50,9 @@ def ofrecer(chat_id: int, accion: str, candidatos: list, extra: dict | None = No
         return True
 
     extra = extra or {}
-    ids = [r["id"] for r in candidatos]
     propuesta_id = db.guardar_propuesta(
-        chat_id, {"accion": accion, "ids": ids, "extra": extra}, TTL_MINUTOS)
+        chat_id, {"accion": accion, "ids": [r["id"] for r in candidatos],
+                  "extra": extra}, TTL_MINUTOS)
 
     datos = ACCIONES[accion]
     texto = _pregunta(accion, candidatos, extra, ref)
@@ -71,6 +75,8 @@ def ofrecer(chat_id: int, accion: str, candidatos: list, extra: dict | None = No
             {"text": "No", "callback_data": cb.armar("p", propuesta_id, "no")},
         ])
 
+    if prefijo:
+        texto = f"{prefijo}\n{texto}"
     enviado = telegram.enviar(chat_id, texto, filas, silencioso=True)
     if enviado:
         db.anotar_temporal(chat_id, enviado["message_id"], "propuesta", TTL_MINUTOS)

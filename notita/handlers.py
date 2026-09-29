@@ -14,6 +14,7 @@ import re
 from datetime import date, timedelta
 
 from . import (
+    audio,
     calendario,
     cb,
     config,
@@ -139,6 +140,15 @@ def _mensaje(msg: dict) -> None:
         _limpiar_aviso_de_servicio(chat_id, msg, servicio)
         return
 
+    escuchado = ""
+    if audio.hay_voz(msg):
+        # La transcripción entra por la misma puerta que un mensaje escrito: así
+        # hereda todo lo que ya está probado (anotar, proponer, deshacer).
+        texto = audio.transcribir(chat_id, msg) or ""
+        if not texto:
+            return                      # ya avisó en el grupo
+        escuchado = audio.prefijo(texto)
+
     if not texto:
         telegram.enviar(chat_id, SIN_TEXTO, silencioso=True)
         return
@@ -152,7 +162,7 @@ def _mensaje(msg: dict) -> None:
         _comando(chat_id, texto, autor)
         return
 
-    _interpretar(chat_id, texto, autor, msg.get("message_id"))
+    _interpretar(chat_id, texto, autor, msg.get("message_id"), escuchado)
 
 
 def _limpiar_aviso_de_servicio(chat_id: int, msg: dict, tipo: str) -> None:
@@ -247,7 +257,9 @@ def _comando(chat_id: int, texto: str, autor: str) -> None:
 # Capturar: el texto crea
 # --------------------------------------------------------------------------
 
-def _interpretar(chat_id: int, texto: str, autor: str, mensaje_id: int | None) -> None:
+def _interpretar(chat_id: int, texto: str, autor: str, mensaje_id: int | None,
+                 escuchado: str = "") -> None:
+    """`escuchado` es el renglón «🎤 «…»» cuando el mensaje vino por audio."""
     ref = hoy()
     data = llm.interpretar_mensaje(texto, autor, ref) if llm.disponible() else None
     if data is None:
@@ -264,22 +276,27 @@ def _interpretar(chat_id: int, texto: str, autor: str, mensaje_id: int | None) -
             tablero.publicar(chat_id)
         return
     if intencion == "recado":
-        _recado(chat_id, data, autor)
+        _recado(chat_id, data, autor, escuchado)
         return
     if intencion == "modificar":
-        _proponer(chat_id, data, autor, ref)
+        _proponer(chat_id, data, autor, ref, escuchado)
         return
     if intencion == "crear" and (data.get("items") or []):
-        _crear(chat_id, data["items"], autor, mensaje_id, ref, texto)
+        _crear(chat_id, data["items"], autor, mensaje_id, ref, texto, escuchado)
         return
 
     comentario = (data.get("comentario") or "").strip()
-    if comentario:
-        telegram.enviar(chat_id, telegram.escapar(comentario), silencioso=True)
+    if comentario or escuchado:
+        telegram.enviar(chat_id, _con_prefijo(escuchado, telegram.escapar(comentario)),
+                        silencioso=True)
+
+
+def _con_prefijo(escuchado: str, cuerpo: str) -> str:
+    return f"{escuchado}\n{cuerpo}".strip() if escuchado else cuerpo
 
 
 def _crear(chat_id: int, items: list, autor: str, mensaje_id: int | None,
-           ref: date, texto: str = "") -> None:
+           ref: date, texto: str = "", escuchado: str = "") -> None:
     """Guarda todo y después CONFIRMA LEYENDO DE LA BASE.
 
     `texto` es el mensaje original: se usa para no creerle al modelo un responsable
@@ -337,9 +354,9 @@ def _crear(chat_id: int, items: list, autor: str, mensaje_id: int | None,
         telegram.enviar(chat_id, "No pude guardar eso 😕 Probá de nuevo en un ratito")
         return
 
-    texto, teclado = _confirmacion(chat_id, filas, repetidos, sin_fecha_posible,
-                                   de_madrugada, ref)
-    telegram.enviar(chat_id, texto, teclado, silencioso=True)
+    cuerpo, teclado = _confirmacion(chat_id, filas, repetidos, sin_fecha_posible,
+                                    de_madrugada, ref)
+    telegram.enviar(chat_id, _con_prefijo(escuchado, cuerpo), teclado, silencioso=True)
     tablero.actualizar(chat_id)
 
 
@@ -435,44 +452,49 @@ def _primera_ocurrencia(rec, ref: date) -> date:
     return ref
 
 
-def _recado(chat_id: int, data: dict, autor: str) -> None:
+def _recado(chat_id: int, data: dict, autor: str, escuchado: str = "") -> None:
     """Un recado es para ahora: se dice y listo. No se guarda nada."""
     para = data.get("recado_para")
     mensaje = " ".join((data.get("recado_mensaje") or "").split())
     if para not in config.PERSONAS or para in ("ninguno", "ambos") or not mensaje:
         comentario = (data.get("comentario") or "").strip()
-        telegram.enviar(chat_id, telegram.escapar(comentario) or "¿A quién se lo digo? 🤔",
-                        silencioso=True)
+        telegram.enviar(chat_id, _con_prefijo(
+            escuchado, telegram.escapar(comentario) or "¿A quién se lo digo? 🤔"),
+            silencioso=True)
         return
     de = config.NOMBRES.get(autor, "alguien")
     if para == autor:
-        telegram.enviar(chat_id, f"🔔 {telegram.mencion(para)}, te acordás de:\n"
-                                 f"«{telegram.escapar(mensaje)}»")
+        telegram.enviar(chat_id, _con_prefijo(
+            escuchado, f"🔔 {telegram.mencion(para)}, te acordás de:\n"
+                       f"«{telegram.escapar(mensaje)}»"))
         return
-    telegram.enviar(chat_id, f"💌 {telegram.mencion(para)}, {telegram.escapar(de)} "
-                             f"te manda a decir:\n«{telegram.escapar(mensaje)}»")
+    telegram.enviar(chat_id, _con_prefijo(
+        escuchado, f"💌 {telegram.mencion(para)}, {telegram.escapar(de)} "
+                   f"te manda a decir:\n«{telegram.escapar(mensaje)}»"))
 
 
 # --------------------------------------------------------------------------
 # Proponer: el texto pide, el botón ejecuta
 # --------------------------------------------------------------------------
 
-def _proponer(chat_id: int, data: dict, autor: str, ref: date) -> None:
+def _proponer(chat_id: int, data: dict, autor: str, ref: date,
+              escuchado: str = "") -> None:
     accion = data.get("accion") or "ninguna"
     if accion == "vaciar_super":
         rows = db.pendientes(chat_id, tipo="compras")
         if not rows:
-            telegram.enviar(chat_id, "La lista del súper ya está vacía 🛒", silencioso=True)
+            telegram.enviar(chat_id, _con_prefijo(
+                escuchado, "La lista del súper ya está vacía 🛒"), silencioso=True)
             return
-        propuestas.ofrecer(chat_id, "completar", rows, ref=ref)
+        propuestas.ofrecer(chat_id, "completar", rows, ref=ref, prefijo=escuchado)
         return
     if accion == "pausar":
         _proponer_pausa(chat_id, data, ref)
         return
     if accion not in propuestas.ACCIONES:
         comentario = (data.get("comentario") or "").strip()
-        telegram.enviar(chat_id, telegram.escapar(comentario) or
-                        "No me quedó claro qué querés cambiar 🤔 Mirá el tablero",
+        telegram.enviar(chat_id, _con_prefijo(escuchado, telegram.escapar(comentario) or
+                        "No me quedó claro qué querés cambiar 🤔 Mirá el tablero"),
                         silencioso=True)
         return
 
@@ -480,7 +502,8 @@ def _proponer(chat_id: int, data: dict, autor: str, ref: date) -> None:
     if not candidatos:
         referencias = ", ".join(f"«{telegram.escapar(r)}»"
                                 for r in (data.get("referencias") or [])) or "eso"
-        telegram.enviar(chat_id, f"No encontré nada parecido a {referencias} 👀",
+        telegram.enviar(chat_id, _con_prefijo(
+            escuchado, f"No encontré nada parecido a {referencias} 👀"),
                         [[{"text": "📋 Ver el tablero", "callback_data": cb.armar("tab")}]],
                         silencioso=True)
         return
@@ -506,7 +529,7 @@ def _proponer(chat_id: int, data: dict, autor: str, ref: date) -> None:
             quien = autor
         extra = {"responsable": quien}
 
-    propuestas.ofrecer(chat_id, accion, candidatos, extra, ref)
+    propuestas.ofrecer(chat_id, accion, candidatos, extra, ref, escuchado)
 
 
 def _resolver_candidatos(chat_id: int, data: dict, ref: date) -> list:

@@ -451,12 +451,12 @@ def test_los_demas_avisos_de_servicio_tampoco(enviados, clave):
     assert db.pendientes(CHAT) == []
 
 
-def test_un_audio_de_verdad_si_se_contesta(enviados):
+def test_una_foto_de_verdad_si_se_contesta(enviados):
     handlers.handle_update({"update_id": 404, "message": {
         "chat": {"id": CHAT, "type": "supergroup"}, "from": {"id": 111},
-        "message_id": 14, "voice": {"file_id": "x"}}})
+        "message_id": 14, "photo": [{"file_id": "x"}]}})
 
-    assert any("audios" in t for t in textos(enviados))
+    assert any("audios ni fotos" in t for t in textos(enviados))
 
 
 def test_al_mudarse_no_se_lleva_los_message_id(enviados, monkeypatch, tmp_path):

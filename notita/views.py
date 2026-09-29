@@ -151,6 +151,7 @@ AYUDA = """Soy <b>Notita</b> 🧲 y así nos entendemos:
 • «hay que limpiar la heladera y falta leche» → lo separo solo
 • «llevar a Milo al veterinario el jueves a las 18» → con fecha, hora y responsable
 • «pagar el ABL todos los 10» → se repite sola 🔁
+• 🎤 <b>o mandame un audio</b> de hasta {segundos} segundos y lo transcribo
 
 <b>Para manejar lo anotado, tocá</b>
 El <b>tablero</b> está fijado arriba del grupo:
@@ -176,7 +177,8 @@ Comandos: /tablero · /super · /parte · /ayuda"""
 
 
 def ayuda() -> str:
-    return AYUDA.replace("{hora}", config.HORA_RUTINA)
+    return (AYUDA.replace("{hora}", config.HORA_RUTINA)
+            .replace("{segundos}", str(config.AUDIO_SEGUNDOS)))
 
 
 BIENVENIDA = """🧲 <b>Notita cambió</b>

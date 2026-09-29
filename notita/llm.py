@@ -414,6 +414,81 @@ Si no se entiende nada -> desconocida.
 """
 
 
+# --------------------------------------------------------------------------
+# Transcribir notas de voz
+# --------------------------------------------------------------------------
+
+# Telegram manda las notas de voz en Ogg/Opus y Gemini las acepta tal cual: probado
+# con un audio real de WhatsApp (48 kHz, mono) y con archivos generados con ffmpeg.
+# No hace falta transcodificar, que era el riesgo que podía tumbar todo esto.
+MIME_VOZ = "audio/ogg"
+
+# Timeout propio: transcribir 14 segundos de audio tardó 20 en las pruebas, o sea
+# más que el TIMEOUT normal de 25. Y un solo reintento, porque reintentar una
+# llamada de 20 segundos es carísimo en espera.
+TIMEOUT_AUDIO = 60
+INTENTOS_AUDIO = 2
+
+INDESCIFRABLE = "NO_SE_ENTIENDE"
+
+SISTEMA_VOZ = (
+    "Transcribí literalmente este audio en español rioplatense. "
+    "Devolvé SOLO la transcripción, sin comillas ni comentarios ni explicaciones. "
+    f"Si no se entiende nada, o es puro ruido o silencio, devolvé exactamente: {INDESCIFRABLE}"
+)
+
+
+def transcribir(audio: bytes, mime: str = MIME_VOZ) -> str | None:
+    """El texto del audio, o None si no se pudo (que es distinto de no entenderlo).
+
+    Devuelve `INDESCIFRABLE` cuando el audio es ruido o silencio: probado, el modelo
+    no inventa palabras en ese caso.
+    """
+    import base64
+
+    if not config.GEMINI_API_KEY:
+        return None
+    cuerpo = {
+        "contents": [{"parts": [
+            {"text": SISTEMA_VOZ},
+            {"inline_data": {"mime_type": mime,
+                             "data": base64.b64encode(audio).decode()}},
+        ]}],
+        "generationConfig": {"temperature": 0},
+    }
+    for intento in range(1, INTENTOS_AUDIO + 1):
+        try:
+            r = requests.post(
+                ENDPOINT.format(model=config.GEMINI_MODEL),
+                params={"key": config.GEMINI_API_KEY},
+                json=cuerpo, timeout=TIMEOUT_AUDIO,
+                headers={"Content-Type": "application/json"},
+            )
+        except requests.exceptions.RequestException as e:
+            log.warning("Transcribiendo: %s (intento %d)", type(e).__name__, intento)
+            if intento < INTENTOS_AUDIO:
+                time.sleep(ESPERA)
+            continue
+        if r.status_code == 200:
+            texto = _texto_de(r.json())
+            return " ".join(texto.split()) if texto else None
+        # 503 («el modelo está sobrecargado») pasa seguido: vale reintentar una vez.
+        log.error("Transcribiendo: HTTP %s %s", r.status_code, r.text[:200])
+        if r.status_code in (429, 500, 503) and intento < INTENTOS_AUDIO:
+            time.sleep(ESPERA * 2)
+            continue
+        return None
+    return None
+
+
+def _texto_de(data: dict) -> str:
+    try:
+        return data["candidates"][0]["content"]["parts"][0]["text"].strip()
+    except (KeyError, IndexError, TypeError):
+        log.error("Respuesta sin texto: %s", str(data)[:200])
+        return ""
+
+
 def interpretar_fecha(texto: str, ref: date | None = None) -> DateSpec | None:
     ref = ref or hoy()
     data = _call(f"{_contexto_fecha(ref)}\nExpresión: «{texto}»", SCHEMA_FECHA, SISTEMA_FECHA)

@@ -237,6 +237,36 @@ def mencion(persona: str) -> str:
     return escapar(nombre)
 
 
+ARCHIVOS = "https://api.telegram.org/file/bot{token}/{ruta}"
+LIMITE_DESCARGA = 2 * 1024 * 1024      # una nota de voz de 15s pesa ~40 KB
+
+
+def descargar(file_id: str) -> bytes | None:
+    """Baja un archivo de Telegram. None si no se pudo."""
+    datos = llamar("getFile", file_id=file_id)
+    ruta = (datos or {}).get("file_path")
+    if not ruta:
+        log.error("No pude averiguar la ruta del archivo")
+        return None
+    url = ARCHIVOS.format(token=config.TELEGRAM_TOKEN, ruta=ruta)
+    for intento in range(1, 3):
+        try:
+            r = requests.get(url, timeout=TIMEOUT)
+            if r.status_code != 200:
+                log.error("Bajando el archivo: HTTP %s", r.status_code)
+                return None
+            if len(r.content) > LIMITE_DESCARGA:
+                log.error("El archivo pesa %d bytes, demasiado", len(r.content))
+                return None
+            return r.content
+        except requests.exceptions.RequestException as e:
+            # El proxy de PythonAnywhere falla de a ratos; con archivos, más.
+            log.warning("Bajando el archivo: %s (intento %d)", type(e).__name__, intento)
+            if intento < 2:
+                time.sleep(ESPERA)
+    return None
+
+
 def mandar_archivo(chat_id: int, nombre: str, contenido: bytes,
                    leyenda: str = "") -> dict | None:
     """Manda un archivo (el .ics del calendario)."""
