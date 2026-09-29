@@ -148,4 +148,8 @@ El respaldo lo hace la propia migración, **antes** de tocar nada, con la fecha 
 nombre y sin pisar ninguno anterior (`_nombre_de_respaldo` en `db.py`). Si el archivo
 no está, la migración no corrió.
 
+El nombre dice de qué te salva: `antes-de-v3` es de antes del cambio de esquema (el
+que querés para volver a una versión vieja del código) y `antes-de-limpiar`, de antes
+de borrar columnas que ya no se usaban.
+
 Para probar la app a mano, seguí [docs/PROBAR.md](docs/PROBAR.md).

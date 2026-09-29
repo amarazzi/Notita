@@ -207,7 +207,11 @@ def _respaldar_si_hace_falta() -> None:
         return
     try:
         respaldo = _nombre_de_respaldo(base, motivo)
-        shutil.copy2(base, respaldo)
+        # `copy` y no `copy2`: copy2 conserva la fecha del original, así que un
+        # `ls -la` mostraba cuándo se tocó la base por última vez y no cuándo se hizo
+        # la copia. Eligiendo un respaldo apurado, eso confunde. Los permisos sí se
+        # copian (copymode), que es lo que importa.
+        shutil.copy(base, respaldo)
         log.info("Respaldo antes de tocar la base (%s): %s", motivo, respaldo)
     except OSError as e:
         log.error("No pude respaldar la base: %s", e)

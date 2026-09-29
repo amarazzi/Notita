@@ -611,3 +611,23 @@ def test_el_indice_nuevo_no_menciona_columnas_muertas():
         if "CREATE INDEX" in sentencia.upper():
             for muerta in db.COLUMNAS_MUERTAS["tasks"]:
                 assert muerta not in sentencia, sentencia.strip()
+
+
+def test_la_fecha_del_respaldo_es_cuando_se_hizo(tmp_path, monkeypatch):
+    """`copy2` conservaba la fecha del original: `ls -la` mostraba la hora equivocada."""
+    import os
+    import time
+
+    from notita import config
+
+    ruta = tmp_path / "prod.db"
+    base_con_super(ruta)
+    hace_un_mes = time.time() - 30 * 24 * 3600
+    os.utime(ruta, (hace_un_mes, hace_un_mes))
+    monkeypatch.setattr(config, "DB_PATH", str(ruta))
+
+    db.init_db()
+
+    respaldo = next(iter(tmp_path.glob("prod.db.antes-de-v3.*.bak")))
+    assert respaldo.stat().st_mtime > hace_un_mes + 3600, "tiene que ser de ahora"
+    assert respaldo.stat().st_mode == ruta.stat().st_mode, "los permisos sí se copian"
