@@ -16,7 +16,7 @@ from __future__ import annotations
 import re
 
 from . import config
-from .dates import DateSpec, aplanar, extraer_fecha, extraer_fecha_y_hora, extraer_recurrencia
+from .dates import aplanar, extraer_fecha, extraer_fecha_y_hora, extraer_recurrencia
 
 # Verbos que indican que algo se HACE (no que se compra).
 ACCIONES = (
@@ -315,10 +315,8 @@ DURABLES = (
 )
 
 
-def _es_compra(plano: str, con_fecha: bool = False) -> bool:
-    # `con_fecha` ya no decide nada: una compra puede tener día («para el asado del
-    # sábado falta carbón»). Lo que define el tipo es QUÉ es la cosa.
-    del con_fecha
+def _es_compra(plano: str) -> bool:
+    """La etiqueta 🛒: qué es la cosa, no cuándo ni cómo lo dijeron."""
     if any(re.search(rf"\b{a}\b", plano) for a in ACCIONES):
         return False
     # Con plural: «focos», «tornillos», «macetas».
@@ -372,8 +370,9 @@ def _item(fragmento: str) -> dict | None:
         return None
 
     plano = aplanar(texto)
-    if _es_compra(plano_completo, con_fecha=spec is not None):
-        tipo, categoria, spec = "compras", "compras", DateSpec("algun_dia")
+    if _es_compra(plano_completo):
+        # La etiqueta 🛒 no le saca la fecha: «para el asado del sábado falta carbón».
+        tipo, categoria = "compras", "compras"
     else:
         tipo, categoria = "casa", _categoria(plano)
 
@@ -514,5 +513,5 @@ def _item_v2(item: dict) -> dict:
     """`texto` pasa a `titulo` y el tipo al vocabulario de v2."""
     nuevo = dict(item)
     nuevo["titulo"] = item.get("titulo") or item.get("texto") or ""
-    nuevo["tipo"] = "compras" if item.get("tipo") == "compras" else "tarea"
+    nuevo["compra"] = item.get("tipo") == "compras"
     return nuevo

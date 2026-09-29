@@ -47,7 +47,7 @@ def test_dos_updates_casi_simultaneos_dan_dos_respuestas(enviados, monkeypatch):
 
     assert errores == []
     assert len(textos(enviados)) == 2, "las dos confirmaciones tienen que llegar"
-    assert len(db.pendientes(CHAT, tipo="casa")) == 2
+    assert len(db.pendientes(CHAT, compra=False)) == 2
 
 
 def test_una_accion_larga_con_otro_mensaje_encima(enviados, monkeypatch):
@@ -110,7 +110,7 @@ def test_si_no_se_puede_mandar_queda_en_la_cola(telegram_caido, monkeypatch):
     handlers.handle_update(mensaje("sacar la basura", update_id=1))
 
     # La acción se hizo…
-    assert len(db.pendientes(CHAT, tipo="casa")) == 1
+    assert len(db.pendientes(CHAT, compra=False)) == 1
     # …y la confirmación no se perdió: está esperando.
     cola = db.salientes_pendientes()
     assert len(cola) == 1

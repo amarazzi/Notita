@@ -45,14 +45,14 @@ def escucha(monkeypatch):
 def test_un_audio_se_anota_como_si_lo_hubieran_escrito(enviados, escucha, monkeypatch):
     escucha["transcripcion"] = "falta leche y hay que limpiar la heladera el jueves"
     responde(monkeypatch, items=[
-        item("Leche", tipo="super", fecha_kind="algun_dia"),
+        item("Leche", compra=True, fecha_kind="algun_dia"),
         item("limpiar la heladera", categoria="limpieza", fecha_kind="dia_semana",
              fecha_weekday=3)])
 
     handlers.handle_update(nota_de_voz())
 
-    assert [r["texto"] for r in db.pendientes(CHAT, tipo="compras")] == ["Leche"]
-    assert len(db.pendientes(CHAT, tipo="casa")) == 1
+    assert [r["texto"] for r in db.pendientes(CHAT, compra=True)] == ["Leche"]
+    assert len(db.pendientes(CHAT, compra=False)) == 1
     confirmacion = [t for t in textos(enviados) if "Anoté" in t][0]
     assert "🎤" in confirmacion, "tiene que mostrar lo que escuchó"
     assert "falta leche y hay que limpiar la heladera el jueves" in confirmacion
@@ -61,7 +61,7 @@ def test_un_audio_se_anota_como_si_lo_hubieran_escrito(enviados, escucha, monkey
 
 def test_avisa_que_esta_escuchando_y_despues_lo_borra(enviados, escucha, monkeypatch):
     """Transcribir puede tardar 20 segundos: sin aviso parece que se colgó."""
-    responde(monkeypatch, items=[item("Leche", tipo="super", fecha_kind="algun_dia")])
+    responde(monkeypatch, items=[item("Leche", compra=True, fecha_kind="algun_dia")])
 
     handlers.handle_update(nota_de_voz())
 
@@ -72,7 +72,7 @@ def test_avisa_que_esta_escuchando_y_despues_lo_borra(enviados, escucha, monkeyp
 
 
 def test_lo_que_se_le_manda_a_gemini_es_el_audio_crudo(enviados, escucha, monkeypatch):
-    responde(monkeypatch, items=[item("Leche", tipo="super", fecha_kind="algun_dia")])
+    responde(monkeypatch, items=[item("Leche", compra=True, fecha_kind="algun_dia")])
 
     handlers.handle_update(nota_de_voz())
 
@@ -95,7 +95,7 @@ def test_un_audio_largo_no_se_descarga_ni_se_manda(enviados, escucha):
 
 
 def test_justo_en_el_tope_pasa(enviados, escucha, monkeypatch):
-    responde(monkeypatch, items=[item("Leche", tipo="super", fecha_kind="algun_dia")])
+    responde(monkeypatch, items=[item("Leche", compra=True, fecha_kind="algun_dia")])
 
     handlers.handle_update(nota_de_voz(segundos=config.AUDIO_SEGUNDOS))
 
@@ -167,14 +167,14 @@ def test_se_pueden_apagar(enviados, escucha, monkeypatch):
 
 def test_un_pedido_de_modificacion_por_audio_solo_propone(enviados, escucha, monkeypatch):
     """Una transcripción puede equivocarse: con más razón acá no se ejecuta nada."""
-    db.crear_tarea(CHAT, "leche", tipo="compras", categoria="compras")
+    db.crear_tarea(CHAT, "leche", compra=True, categoria="compras")
     escucha["transcripcion"] = "ya compré la leche"
     responde(monkeypatch, intencion="modificar", accion="completar",
              referencias=["leche"])
 
     handlers.handle_update(nota_de_voz())
 
-    assert len(db.pendientes(CHAT, tipo="compras")) == 1, "no se toca nada"
+    assert len(db.pendientes(CHAT, compra=True)) == 1, "no se toca nada"
     propuesta = [t for t in textos(enviados) if "¿Tacho" in t][0]
     assert "🎤" in propuesta and "ya compré la leche" in propuesta
 
@@ -208,12 +208,12 @@ def test_una_charla_por_audio_no_crea_nada(enviados, escucha, monkeypatch):
 
 def test_un_reintento_del_webhook_no_anota_dos_veces(enviados, escucha, monkeypatch):
     """Telegram reenvía si tarda en responder, y transcribir tarda."""
-    responde(monkeypatch, items=[item("Leche", tipo="super", fecha_kind="algun_dia")])
+    responde(monkeypatch, items=[item("Leche", compra=True, fecha_kind="algun_dia")])
 
     handlers.handle_update(nota_de_voz(update_id=77))
     handlers.handle_update(nota_de_voz(update_id=77))
 
-    assert len(db.pendientes(CHAT, tipo="compras")) == 1
+    assert len(db.pendientes(CHAT, compra=True)) == 1
     assert len([t for t in textos(enviados) if "Anoté" in t]) == 1
     assert escucha["transcripto"] == [(len(b"OggS\x00fingido"), "audio/ogg")], \
         "tampoco se transcribe dos veces (cuesta cuota y tiempo)"
@@ -226,7 +226,7 @@ def test_si_falla_la_interpretacion_el_modo_local_salva_la_tarea(enviados, escuc
 
     handlers.handle_update(nota_de_voz())
 
-    guardada = db.pendientes(CHAT, tipo="casa")[0]
+    guardada = db.pendientes(CHAT, compra=False)[0]
     assert guardada["texto"] == "limpiar la heladera"
     assert "🎤" in [t for t in textos(enviados) if "Anoté" in t][0]
 

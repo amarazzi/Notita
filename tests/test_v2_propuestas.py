@@ -22,8 +22,8 @@ def _resultado_de_la_propuesta(enviados) -> str:
 
 def sembrar_super():
     return {
-        "leche": db.crear_tarea(CHAT, "leche", tipo="compras", categoria="compras"),
-        "lavandina": db.crear_tarea(CHAT, "lavandina", tipo="compras", categoria="compras"),
+        "leche": db.crear_tarea(CHAT, "leche", compra=True, categoria="compras"),
+        "lavandina": db.crear_tarea(CHAT, "lavandina", compra=True, categoria="compras"),
     }
 
 
@@ -39,7 +39,7 @@ def test_ya_compre_la_leche_y_la_lavandina_no_modifica_nada_todavia(
 
     handlers.handle_update(mensaje("ya compré la leche y la lavandina"))
 
-    assert len(db.pendientes(CHAT, tipo="compras")) == 2, "todavía no se tocó nada"
+    assert len(db.pendientes(CHAT, compra=True)) == 2, "todavía no se tocó nada"
     propuesta = textos(enviados)[0]
     assert "¿Tacho estas 2?" in propuesta
     etiquetas = [b["text"] for b in botones(enviados)]
@@ -56,7 +56,7 @@ def test_al_tocar_las_dos_se_tachan_las_dos(enviados, monkeypatch):
 
     handlers.handle_update(click(boton["callback_data"]))
 
-    assert db.pendientes(CHAT, tipo="compras") == []
+    assert db.pendientes(CHAT, compra=True) == []
     resultado = _resultado_de_la_propuesta(enviados)
     assert "Tachadas" in resultado
 
@@ -87,7 +87,7 @@ def test_si_una_ya_estaba_tachada_lo_dice(enviados, monkeypatch):
     resultado = _resultado_de_la_propuesta(enviados)
     assert "Lavandina" in resultado
     assert "ya la había tachado Barbu" in resultado
-    assert db.pendientes(CHAT, tipo="compras") == []
+    assert db.pendientes(CHAT, compra=True) == []
 
 
 def test_el_no_no_toca_nada(enviados, monkeypatch):
@@ -99,7 +99,7 @@ def test_el_no_no_toca_nada(enviados, monkeypatch):
 
     handlers.handle_update(click(boton["callback_data"]))
 
-    assert len(db.pendientes(CHAT, tipo="compras")) == 2
+    assert len(db.pendientes(CHAT, compra=True)) == 2
     assert "no toqué nada" in _resultado_de_la_propuesta(enviados)
 
 
@@ -114,7 +114,7 @@ def test_una_propuesta_vencida_no_se_ejecuta(enviados, monkeypatch):
 
     handlers.handle_update(click(boton["callback_data"]))
 
-    assert len(db.pendientes(CHAT, tipo="compras")) == 2
+    assert len(db.pendientes(CHAT, compra=True)) == 2
     avisos = [e.get("text") for e in enviados if e["metodo"] == "answerCallbackQuery"]
     assert "venció" in avisos[-1]
 
@@ -149,7 +149,7 @@ def test_vaciar_el_super_se_propone(enviados, monkeypatch):
 
     handlers.handle_update(mensaje("ya compramos todo"))
 
-    assert len(db.pendientes(CHAT, tipo="compras")) == 2
+    assert len(db.pendientes(CHAT, compra=True)) == 2
     assert "¿Tacho estas 2?" in textos(enviados)[0]
 
 
@@ -170,7 +170,7 @@ def test_con_demasiados_candidatos_pide_ser_mas_puntual(enviados, monkeypatch):
 
     handlers.handle_update(mensaje("borrá todo lo de hoy"))
 
-    assert len(db.pendientes(CHAT, tipo="casa")) == 12
+    assert len(db.pendientes(CHAT, compra=False)) == 12
     assert "más puntual" in textos(enviados)[0]
 
 
@@ -231,5 +231,5 @@ def test_sin_gemini_las_propuestas_funcionan(enviados, monkeypatch):
 
     handlers.handle_update(mensaje("ya compré la leche"))
 
-    assert len(db.pendientes(CHAT, tipo="compras")) == 2, "propone, no ejecuta"
+    assert len(db.pendientes(CHAT, compra=True)) == 2, "propone, no ejecuta"
     assert "¿Tacho" in textos(enviados)[0]

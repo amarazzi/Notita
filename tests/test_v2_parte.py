@@ -116,22 +116,21 @@ def test_con_muchas_vencidas_se_agrupan(enviados):
 
 
 def test_las_compras_se_cuentan(enviados):
-    db.crear_tarea(CHAT, "leche", tipo="compras", categoria="compras")
-    db.crear_tarea(CHAT, "yerba", tipo="compras", categoria="compras")
+    db.crear_tarea(CHAT, "leche", compra=True, categoria="compras")
+    db.crear_tarea(CHAT, "yerba", compra=True, categoria="compras")
     texto, _ = parte.render(CHAT, SABADO)
     assert "En compras hay <b>2</b> cosas" in texto
 
 
-def test_el_parte_nombra_lo_que_hay_que_comprar_para_manana(enviados):
-    """Una compra con fecha se menciona por nombre, no como un número."""
-    db.crear_tarea(CHAT, "carbón", tipo="compras", categoria="compras",
-                   due=SABADO + timedelta(days=1))
-    db.crear_tarea(CHAT, "yerba", tipo="compras", categoria="compras")
+def test_una_compra_con_fecha_va_como_cualquier_cosa(enviados):
+    """Ya no hay sección aparte: una compra de mañana es una cosa de mañana."""
+    db.crear_tarea(CHAT, "Falta carbón", compra=True, due=SABADO + timedelta(days=1))
+    db.crear_tarea(CHAT, "Falta yerba", compra=True)
 
     texto, _ = parte.render(CHAT, SABADO)
 
-    assert "🛒 <b>Para mañana:</b> Carbón" in texto
-    assert "En compras hay <b>1</b> cosas más" in texto
+    assert "Falta carbón" in texto
+    assert "En compras hay <b>1</b> cosas" in texto, "las sueltas sólo se cuentan"
 
 
 def test_sin_nada_manda_el_corto(enviados):
@@ -180,7 +179,7 @@ def test_el_boton_del_parte_mueve_las_vencidas(enviados):
     handlers.handle_update(click(cb.armar("pt")))
 
     manana = (hoy() + timedelta(days=1)).isoformat()
-    assert all(r["due_date"] == manana for r in db.pendientes(CHAT, tipo="casa"))
+    assert all(r["due_date"] == manana for r in db.pendientes(CHAT, compra=False))
 
 
 # --------------------------------------------------------------------------

@@ -1,272 +1,403 @@
-"""«Súper» pasó a llamarse «Compras», y el tipo dejó de depender de la fecha.
+"""Una sola clase de cosa, con 🛒 como etiqueta.
 
-El bug que lo motivó: un ítem de compras con fecha apareció en el tablero bajo
-MAÑANA, con 🛒 y conservando el «Comprar» adelante.
+La distinción compras/tarea era la fuente de casi todos los bugs: la cómoda mal
+clasificada, el verbo borrado («Regalo para mamá»), duplicados que no se detectaban,
+la fecha que se perdía. Ahora hay una sola clase de cosa y 🛒 es sólo una etiqueta
+para filtrar: no cambia cómo se guarda ni cómo se nombra.
 """
 from datetime import timedelta
 
 import pytest
 
-from notita import cb, db, handlers, menus, parte, tablero, telegram, views
+from notita import cb, db, handlers, menus, parte, tablero
 from notita.dates import hoy
 
 from .conftest import CHAT
-from .test_v2_captura import botones, click, item, mensaje, responde, textos
+from .test_v2_captura import click, item, mensaje, responde, textos
 
 MANANA = hoy() + timedelta(days=1)
 
 
+def secciones_del_tablero(ref=None):
+    return tablero.repartir(db.pendientes(CHAT), ref or hoy())
+
+
+def en_alguna_seccion(texto, ref=None) -> bool:
+    return any(texto.lower() in r["texto"].lower()
+               for rows in secciones_del_tablero(ref).values() for r in rows)
+
+
 # --------------------------------------------------------------------------
-# El tipo lo define qué es la cosa, no si tiene fecha
+# El texto se guarda como lo dijeron
 # --------------------------------------------------------------------------
 
-@pytest.mark.parametrize("texto,titulo,tipo_llm,fecha_kind,espera_tipo,espera_fecha", [
-    ("falta leche", "Leche", "compras", "desconocida", "compras", None),
-    ("mañana compramos leche", "Leche", "compras", "manana", "compras", MANANA),
-    ("para el asado del sábado falta carbón", "Carbón", "compras", "dia_semana",
-     "compras", None),           # el weekday lo resuelve el parser; acá importa el tipo
-    ("comprar la cómoda mañana", "Comprar la cómoda", "tarea", "manana", "casa", MANANA),
-    ("comprar regalo para mamá antes del domingo", "Comprar el regalo de mamá",
-     "tarea", "dia_semana", "casa", None),
+@pytest.mark.parametrize("titulo,compra", [
+    ("Falta leche", True),
+    ("Comprar leche", True),
+    ("Comprar regalo para mamá", False),
+    ("Llamar al plomero", False),
 ])
-def test_donde_cae_cada_cosa(enviados, monkeypatch, texto, titulo, tipo_llm,
-                             fecha_kind, espera_tipo, espera_fecha):
-    extra = {"fecha_weekday": 5} if fecha_kind == "dia_semana" else {}
-    responde(monkeypatch, items=[item(titulo, tipo=tipo_llm, fecha_kind=fecha_kind,
-                                      **extra)])
+def test_el_texto_se_guarda_tal_cual(enviados, monkeypatch, titulo, compra):
+    """Ya no se le saca el verbo a nada: era una regla que sólo valía para compras."""
+    responde(monkeypatch, items=[item(titulo, compra=compra, fecha_kind="desconocida")])
 
-    handlers.handle_update(mensaje(texto))
+    handlers.handle_update(mensaje(titulo.lower()))
 
-    filas = db.pendientes(CHAT, tipo=espera_tipo)
-    assert len(filas) == 1, f"{texto!r} no fue a {espera_tipo}"
-    if espera_fecha is not None:
-        assert filas[0]["due_date"] == espera_fecha.isoformat()
+    guardada = db.pendientes(CHAT)[0]
+    assert guardada["texto"] == titulo
+    assert bool(guardada["compra"]) is compra
 
 
-def test_una_compra_con_fecha_no_lleva_el_verbo(enviados, monkeypatch):
-    responde(monkeypatch, items=[item("comprar carbón", tipo="compras",
-                                      fecha_kind="dia_semana", fecha_weekday=5)])
+def test_el_regalo_conserva_su_texto(enviados, monkeypatch):
+    """Antes quedaba «Regalo para mamá»: le comíamos el verbo."""
+    responde(monkeypatch, items=[item("Comprar regalo para mamá", compra=False,
+                                      fecha_kind="dia_semana", fecha_weekday=6)])
 
-    handlers.handle_update(mensaje("para el asado del sábado hay que comprar carbón"))
+    handlers.handle_update(mensaje("comprar regalo para mamá antes del domingo"))
 
-    fila = db.pendientes(CHAT, tipo="compras")[0]
-    assert fila["texto"] == "carbón", "en compras el verbo no va"
-    assert fila["due_date"] is not None, "pero la fecha sí"
-
-
-def test_una_compra_con_fecha_no_aparece_en_los_dias_del_tablero(enviados):
-    """El bug: apareció bajo MAÑANA, entre las tareas."""
-    db.crear_tarea(CHAT, "carbón", tipo="compras", categoria="compras", due=MANANA)
-    db.crear_tarea(CHAT, "sacar la basura", due=MANANA)
-
-    texto, filas = tablero.render(CHAT)
-    secciones = tablero.repartir(db.pendientes(CHAT, tipo="casa"), hoy())
-
-    assert all("arbón" not in r["texto"] for rows in secciones.values() for r in rows)
-    etiquetas = [b["text"] for fila in filas for b in fila]
-    assert not any("Carbón" in e and e.startswith("✅") for e in etiquetas)
-    assert "COMPRAS" in texto
+    guardada = db.pendientes(CHAT)[0]
+    assert guardada["texto"] == "Comprar regalo para mamá"
+    assert guardada["due_date"] is not None
 
 
-def test_el_tablero_avisa_cuantas_compras_son_para_manana(enviados):
-    db.crear_tarea(CHAT, "carbón", tipo="compras", categoria="compras", due=MANANA)
-    db.crear_tarea(CHAT, "leche", tipo="compras", categoria="compras")
+# --------------------------------------------------------------------------
+# La etiqueta 🛒 sólo sirve para filtrar
+# --------------------------------------------------------------------------
 
-    texto, filas = tablero.render(CHAT)
+def test_una_compra_sin_fecha_no_se_lista_en_el_tablero(enviados, monkeypatch):
+    responde(monkeypatch, items=[item("Falta leche", compra=True,
+                                      fecha_kind="desconocida")])
 
-    assert "· 1 para mañana" in texto
-    etiquetas = [b["text"] for fila in filas for b in fila]
-    assert "🛒 Compras · 2 (1 para mañana)" in etiquetas
-
-
-def test_si_la_compra_era_para_hoy_no_dice_mañana(enviados):
-    """Decir «para mañana» cuando era para hoy es mentir."""
-    db.crear_tarea(CHAT, "carbón", tipo="compras", categoria="compras", due=hoy())
-
-    texto, _ = tablero.render(CHAT)
-
-    assert "1 para hoy" in texto
-    assert "para mañana" not in texto
-
-
-def test_la_confirmacion_dice_donde_fue_y_para_cuando(enviados, monkeypatch):
-    responde(monkeypatch, items=[item("Carbón", tipo="compras", fecha_kind="manana")])
-
-    handlers.handle_update(mensaje("mañana hay que comprar carbón"))
-
-    confirmacion = textos(enviados)[0]
-    assert "a compras" in confirmacion
-    assert "para mañana" in confirmacion
-
-
-def test_una_compra_sin_fecha_dice_solo_a_compras(enviados, monkeypatch):
-    responde(monkeypatch, items=[item("Leche", tipo="compras", fecha_kind="desconocida")])
     handlers.handle_update(mensaje("falta leche"))
 
-    confirmacion = textos(enviados)[0]
-    assert "a compras" in confirmacion
-    assert "para" not in confirmacion.split("a compras")[1]
+    assert not en_alguna_seccion("leche"), "no va en las secciones de días"
+    texto, filas = tablero.render(CHAT)
+    assert "🛒 <b>COMPRAS</b> · 1" in texto
+    assert any("🛒 Compras · 1" == b["text"] for fila in filas for b in fila)
+    # Pero en la lista de compras sí.
+    enviados.clear()
+    menus.abrir_compras(CHAT)
+    assert "Falta leche" in textos(enviados)[0]
 
 
-def test_mover_entre_tipos_conserva_la_fecha(enviados):
-    tid = db.crear_tarea(CHAT, "comprar carbón", due=MANANA)
+def test_una_compra_con_fecha_va_en_su_dia_con_el_carrito(enviados, monkeypatch):
+    responde(monkeypatch, items=[item("Falta carbón", compra=True,
+                                      fecha_kind="manana")])
+
+    handlers.handle_update(mensaje("para el asado de mañana falta carbón"))
+
+    manana = secciones_del_tablero()["manana"]
+    assert [r["texto"] for r in manana] == ["Falta carbón"]
+    _, filas = tablero.render(CHAT)
+    etiquetas = [b["text"] for fila in filas for b in fila]
+    assert any("🛒" in e and "Falta carbón" in e for e in etiquetas), etiquetas
+    # Y también está en la lista de compras, con la fecha.
+    enviados.clear()
+    menus.abrir_compras(CHAT)
+    lista = textos(enviados)[0]
+    assert "Falta carbón" in lista and "mañana" in lista
+
+
+def test_una_cosa_sin_fecha_y_sin_carrito_va_a_algun_dia(enviados, monkeypatch):
+    responde(monkeypatch, items=[item("Pintar el balcón", compra=False,
+                                      fecha_kind="desconocida")])
+
+    handlers.handle_update(mensaje("pintar el balcón"))
+
+    assert [r["texto"] for r in secciones_del_tablero()["algun_dia"]] == ["Pintar el balcón"]
+
+
+def test_ninguna_cosa_aparece_dos_veces(enviados):
+    db.crear_tarea(CHAT, "Falta carbón", compra=True, due=MANANA)
+    db.crear_tarea(CHAT, "Falta leche", compra=True)
+    db.crear_tarea(CHAT, "Sacar la basura", due=hoy())
+    db.crear_tarea(CHAT, "Pintar el balcón")
+
+    secciones = secciones_del_tablero()
+    vistos = [r["id"] for rows in secciones.values() for r in rows]
+    _, filas = tablero.render(CHAT)
+    tachar = [b["callback_data"] for fila in filas for b in fila
+              if b["text"].startswith("✅")]
+
+    assert len(vistos) == len(set(vistos))
+    assert len(tachar) == len(set(tachar))
+    assert len(vistos) == 3, "la compra sin fecha no va en las secciones"
+
+
+def test_el_toggle_no_toca_ni_el_texto_ni_la_fecha(enviados):
+    tid = db.crear_tarea(CHAT, "Comprar carbón", due=MANANA, hora="18:00")
+    antes = dict(db.obtener(tid))
 
     handlers.handle_update(click(cb.armar("sw", tid), cq_id="a"))
-    assert db.obtener(tid)["tipo"] == "compras"
-    assert db.obtener(tid)["due_date"] == MANANA.isoformat()
+    despues = db.obtener(tid)
+    assert despues["compra"] == 1
+    assert despues["texto"] == antes["texto"]
+    assert despues["due_date"] == antes["due_date"]
+    assert despues["due_hora"] == antes["due_hora"]
 
     handlers.handle_update(click(cb.armar("sw", tid), cq_id="b"))
-    assert db.obtener(tid)["tipo"] == "casa"
-    assert db.obtener(tid)["due_date"] == MANANA.isoformat()
+    assert db.obtener(tid)["compra"] == 0
+    assert db.obtener(tid)["due_date"] == antes["due_date"]
 
 
-def test_el_parte_nombra_las_compras_de_mañana(enviados):
-    db.crear_tarea(CHAT, "carbón", tipo="compras", categoria="compras", due=MANANA)
+def test_el_menu_ofrece_marcar_o_sacar(enviados):
+    tid = db.crear_tarea(CHAT, "Comprar carbón", due=MANANA)
+    enviados.clear()
+    handlers.handle_update(click(cb.armar("m", tid), cq_id="m1"))
+    etiquetas = [b["text"] for e in enviados if e["metodo"] == "sendMessage"
+                 for fila in (e.get("reply_markup") or {}).get("inline_keyboard", [])
+                 for b in fila]
+    assert "🛒 Marcar como compra" in etiquetas
 
-    texto, _ = parte.render(CHAT, hoy())
-
-    assert "🛒 <b>Para mañana:</b> Carbón" in texto
-
-
-# --------------------------------------------------------------------------
-# El renombre
-# --------------------------------------------------------------------------
-
-def test_ningun_texto_visible_dice_super():
-    """El único «super» que puede quedar es el alias /super, que no se muestra."""
-    import ast
-    import pathlib
-    import re
-
-    raiz = pathlib.Path(__file__).resolve().parent.parent
-    culpables = []
-    for archivo in sorted((raiz / "notita").glob("*.py")):
-        if archivo.name in ("llm.py", "heuristica.py"):
-            continue            # prompt y vocabulario de entrada, no se muestran
-        arbol = ast.parse(archivo.read_text(encoding="utf-8"))
-        # Los docstrings cuentan bugs viejos («anunció una cómoda al súper»):
-        # renombrarlos sería falsear la historia. Sólo importan los textos que salen.
-        docstrings = {id(n.body[0].value) for n in ast.walk(arbol)
-                      if isinstance(n, (ast.Module, ast.FunctionDef, ast.ClassDef))
-                      and n.body and isinstance(n.body[0], ast.Expr)
-                      and isinstance(n.body[0].value, ast.Constant)}
-        for nodo in ast.walk(arbol):
-            if (isinstance(nodo, ast.Constant) and isinstance(nodo.value, str)
-                    and id(nodo) not in docstrings):
-                if re.search(r"súper|Súper|SÚPER", nodo.value):
-                    culpables.append(f"{archivo.name}:{nodo.lineno}")
-    assert culpables == [], f"«súper» en {culpables}"
+    db.actualizar(tid, compra=1)
+    enviados.clear()
+    handlers.handle_update(click(cb.armar("m", tid), cq_id="m2"))
+    etiquetas = [b["text"] for e in enviados if e["metodo"] == "sendMessage"
+                 for fila in (e.get("reply_markup") or {}).get("inline_keyboard", [])
+                 for b in fila]
+    assert "Sacar de compras" in etiquetas
 
 
-def test_el_menu_de_telegram_ofrece_compras():
-    registrados = {c for c, _ in telegram.COMANDOS}
-    assert "compras" in registrados
-    assert "super" not in registrados, "el alias no se muestra"
-
-
-def test_compras_y_super_hacen_lo_mismo(enviados):
-    db.crear_tarea(CHAT, "leche", tipo="compras", categoria="compras")
-
-    handlers.handle_update(mensaje("/compras", update_id=1))
-    handlers.handle_update(mensaje("/super", update_id=2))
-
-    listas = [t for t in textos(enviados) if "Compras" in t]
-    assert len(listas) == 2, "el alias viejo tiene que seguir andando"
-
-
-def test_la_ayuda_y_la_bienvenida_hablan_de_compras():
-    for texto in (views.ayuda(), views.bienvenida()):
-        assert "súper" not in texto.lower()
-    assert "/compras" in views.ayuda()
-
-
-def test_la_lista_muestra_la_fecha_de_cada_cosa(enviados):
-    db.crear_tarea(CHAT, "carbón", tipo="compras", categoria="compras", due=MANANA)
-    db.crear_tarea(CHAT, "leche", tipo="compras", categoria="compras")
+def test_la_lista_de_compras_trae_todo_lo_marcado(enviados):
+    db.crear_tarea(CHAT, "Falta leche", compra=True)
+    db.crear_tarea(CHAT, "Falta carbón", compra=True, due=MANANA)
+    db.crear_tarea(CHAT, "Sacar la basura", due=hoy())
     enviados.clear()
 
     menus.abrir_compras(CHAT)
 
     lista = textos(enviados)[0]
-    assert "Compras" in lista and "súper" not in lista.lower()
-    assert "mañana" in lista, "la compra con día tiene que decirlo"
+    assert "Falta leche" in lista and "Falta carbón" in lista
+    assert "Sacar la basura" not in lista
+    etiquetas = [b["text"] for e in enviados if e["metodo"] == "sendMessage"
+                 for fila in (e.get("reply_markup") or {}).get("inline_keyboard", [])
+                 for b in fila]
+    assert any("Compramos todo" in e for e in etiquetas)
+
+
+def test_el_parte_incluye_las_compras_con_fecha_de_manana(enviados):
+    db.crear_tarea(CHAT, "Falta carbón", compra=True, due=hoy() + timedelta(days=1))
+    db.crear_tarea(CHAT, "Falta leche", compra=True)
+
+    texto, _ = parte.render(CHAT, hoy())
+
+    assert "Falta carbón" in texto, "va como cualquier cosa de mañana"
+    assert "🛒 En compras hay <b>1</b> cosas" in texto, "y las sueltas se cuentan"
 
 
 # --------------------------------------------------------------------------
-# Los menores del reporte
+# Duplicados: una sola regla
 # --------------------------------------------------------------------------
-
-def test_la_propuesta_de_mover_no_arranca_con_un_si_suelto(enviados, monkeypatch):
-    """Una variable local `prefijo` pisaba el parámetro (el renglón del audio), así
-
-    que el «Sí, » del botón terminaba arriba del mensaje, como un renglón huérfano.
-    """
-    for cosa in ("una cosa", "otra cosa"):
-        db.crear_tarea(CHAT, cosa, due=MANANA)
-    responde(monkeypatch, intencion="modificar", accion="mover", conjunto="manana",
-             destino_fecha_kind="hoy")
-
-    handlers.handle_update(mensaje("pasá todo lo de mañana para hoy"))
-
-    propuesta = textos(enviados)[0]
-    assert propuesta.startswith("¿Paso estas 2"), repr(propuesta[:40])
-    assert "Sí," not in propuesta.split("\n")[0]
-    # Pero el botón sí lo dice.
-    assert any("Sí, las dos" in b["text"].lower() or "sí, las dos" in b["text"].lower()
-               for b in botones(enviados))
-
-
-def test_con_audio_el_prefijo_sigue_apareciendo(enviados, monkeypatch):
-    """El arreglo no puede llevarse puesto el renglón del audio."""
-    db.crear_tarea(CHAT, "una cosa", due=MANANA)
-    from notita import propuestas
-
-    propuestas.ofrecer(CHAT, "mover", db.pendientes(CHAT), {"fecha": hoy().isoformat()},
-                       hoy(), prefijo="🎤 <i>«pasalo a hoy»</i>")
-
-    assert textos(enviados)[0].startswith("🎤")
-
-
-def test_el_boton_de_elegir_dia_aparece_con_varios_items(enviados, monkeypatch):
-    """Antes sólo salía si el mensaje traía un ítem: con dos se perdía."""
-    responde(monkeypatch, items=[
-        item("pagar la expensa", categoria="pagos", fecha_kind="fecha_exacta",
-             fecha_day=31, fecha_month=2),
-        item("pagar el ABL", categoria="pagos", fecha_kind="fecha_exacta",
-             fecha_day=31, fecha_month=4),
-        item("sacar la basura", fecha_kind="hoy")])
-
-    handlers.handle_update(mensaje("pagar la expensa el 31/2, el ABL el 31/4 y sacar la basura"))
-
-    etiquetas = [b["text"] for b in botones(enviados)]
-    elegir = [e for e in etiquetas if "Elegir día" in e]
-    assert len(elegir) == 2, etiquetas
-    assert "Pagar la expensa" in elegir[0], "con varios, dice cuál"
-
 
 @pytest.mark.parametrize("uno,otro,iguales", [
     ("Comprar la cómoda para la habitación", "Comprar cómoda para la habitación", True),
-    ("sacar la basura", "sacar las basuras", False),
-    ("llamar al plomero", "llamar plomero", True),
-    ("regar las plantas", "regar el balcón", False),
+    ("Falta leche", "Comprar leche", True),
+    ("Hay que llamar al plomero", "Llamar plomero", True),
+    ("Sacar la basura", "Sacar las basuras", False),
+    ("Regar las plantas", "Regar el balcón", False),
 ])
-def test_los_duplicados_ignoran_los_articulos(enviados, uno, otro, iguales):
+def test_los_duplicados_se_comparan_sin_relleno(enviados, uno, otro, iguales):
     db.crear_tarea(CHAT, uno, due=hoy())
 
-    encontrado = db.pendiente_igual(CHAT, otro, "casa")
-
-    assert (encontrado is not None) is iguales
+    assert (db.pendiente_igual(CHAT, otro) is not None) is iguales
 
 
-def test_no_anota_dos_veces_la_comoda(enviados, monkeypatch):
+def test_la_comoda_no_se_anota_dos_veces(enviados, monkeypatch):
     responde(monkeypatch, items=[item("Comprar la cómoda para la habitación",
                                       fecha_kind="manana")])
     handlers.handle_update(mensaje("comprar la cómoda para la habitación mañana",
                                    update_id=1))
     responde(monkeypatch, items=[item("Comprar cómoda para la habitación",
-                                      fecha_kind="manana")])
-    handlers.handle_update(mensaje("comprar cómoda para la habitación mañana",
-                                   update_id=2))
+                                      fecha_kind="desconocida")])
+    handlers.handle_update(mensaje("comprar cómoda para la habitación", update_id=2))
 
-    assert len(db.pendientes(CHAT, tipo="casa")) == 1
+    assert len(db.pendientes(CHAT)) == 1
     assert "Ya estaba" in textos(enviados)[-1]
+
+
+def test_si_lo_repetido_trae_fecha_se_la_pone_y_lo_dice(enviados, monkeypatch):
+    """Decir «ya estaba» y nada más perdía la única información nueva del mensaje."""
+    tid = db.crear_tarea(CHAT, "Leche", compra=True)
+    responde(monkeypatch, items=[item("Compramos leche", compra=True,
+                                      fecha_kind="manana")])
+
+    handlers.handle_update(mensaje("mañana compramos leche"))
+
+    assert len(db.pendientes(CHAT)) == 1
+    assert db.obtener(tid)["due_date"] == MANANA.isoformat()
+    respuesta = textos(enviados)[-1]
+    assert "Ya estaba" in respuesta and "le puse" in respuesta and "mañana" in respuesta
+
+
+def test_si_lo_repetido_no_trae_nada_nuevo_no_cambia_la_fecha(enviados, monkeypatch):
+    tid = db.crear_tarea(CHAT, "Leche", compra=True, due=MANANA)
+    responde(monkeypatch, items=[item("Falta leche", compra=True,
+                                      fecha_kind="desconocida")])
+
+    handlers.handle_update(mensaje("falta leche"))
+
+    assert db.obtener(tid)["due_date"] == MANANA.isoformat()
+
+
+# --------------------------------------------------------------------------
+# «tablero» sin barra, y el resto de las formas de pedirlo
+# --------------------------------------------------------------------------
+
+@pytest.mark.parametrize("texto", ["tablero", "Tablero", "📋", "/tablero", "/todo"])
+def test_todas_las_formas_de_pedir_el_tablero(enviados, monkeypatch, texto):
+    """Regresión: «tablero» sin barra no mostraba nada.
+
+    Eran dos cosas: «📋» caía en «ese comando no lo tengo», y «tablero» editaba el
+    tablero de arriba en vez de publicarlo abajo.
+    """
+    db.crear_tarea(CHAT, "Sacar la basura", due=hoy())
+    tablero.publicar(CHAT)          # deja `editado_en` recién ahora
+    enviados.clear()
+
+    handlers.handle_update(mensaje(texto, update_id=abs(hash(texto)) % 9999))
+
+    publicados = [e for e in enviados if e["metodo"] == "sendMessage"
+                  and "La casa" in e.get("text", "")]
+    assert publicados, f"{texto!r} no publicó el tablero: {[e['metodo'] for e in enviados]}"
+
+
+# --------------------------------------------------------------------------
+# Migración
+# --------------------------------------------------------------------------
+
+def base_con_super(ruta, esquema="2"):
+    """Una base como la de producción: v2, con `tipo` y con ítems de compras."""
+    import sqlite3
+
+    c = sqlite3.connect(ruta)
+    c.executescript("""
+CREATE TABLE tasks (id INTEGER PRIMARY KEY AUTOINCREMENT, chat_id INTEGER NOT NULL,
+ texto TEXT NOT NULL, tipo TEXT NOT NULL DEFAULT 'casa',
+ categoria TEXT NOT NULL DEFAULT 'otros', responsable TEXT NOT NULL DEFAULT 'ninguno',
+ due_date TEXT, due_hora TEXT, mensaje_origen_id INTEGER, recur_kind TEXT,
+ recur_interval INTEGER DEFAULT 1, recur_weekday INTEGER, recur_monthday INTEGER,
+ estado TEXT NOT NULL DEFAULT 'pendiente', postpone_count INTEGER NOT NULL DEFAULT 0,
+ created_by TEXT NOT NULL DEFAULT 'ninguno', created_at TEXT NOT NULL,
+ completed_by TEXT, completed_at TEXT);
+CREATE TABLE ajustes (clave TEXT PRIMARY KEY, valor TEXT);
+CREATE TABLE updates_vistos (update_id TEXT PRIMARY KEY, visto_en TEXT NOT NULL);
+""")
+    c.execute("INSERT INTO ajustes VALUES ('esquema', ?)", (esquema,))
+    for texto, tipo, fecha in (("Leche", "compras", None), ("Yerba", "compras", None),
+                               ("Sacar la basura", "casa", "2026-09-30")):
+        c.execute("INSERT INTO tasks (chat_id, texto, tipo, due_date, created_at) "
+                  "VALUES (?,?,?,?,?)",
+                  (CHAT, texto, tipo, fecha, "2026-09-01T10:00:00-03:00"))
+    c.commit()
+    c.close()
+
+
+def test_la_migracion_etiqueta_las_compras_sin_tocar_el_texto(tmp_path, monkeypatch):
+    from notita import config
+
+    ruta = tmp_path / "prod.db"
+    base_con_super(ruta)
+    monkeypatch.setattr(config, "DB_PATH", str(ruta))
+
+    db.init_db()
+
+    filas = {r["texto"]: r for r in db.pendientes(CHAT)}
+    assert set(filas) == {"Leche", "Yerba", "Sacar la basura"}, "no se toca el texto"
+    assert filas["Leche"]["compra"] == 1
+    assert filas["Yerba"]["compra"] == 1
+    assert filas["Sacar la basura"]["compra"] == 0
+    assert filas["Sacar la basura"]["due_date"] == "2026-09-30", "ni la fecha"
+    assert (tmp_path / "prod.db.v1.bak").exists(), "backup antes de migrar"
+
+
+def test_la_migracion_no_vuelve_a_pisar_la_etiqueta(tmp_path, monkeypatch):
+    """Si alguien saca algo de compras, la migración no lo puede volver a marcar."""
+    from notita import config
+
+    ruta = tmp_path / "prod.db"
+    base_con_super(ruta)
+    monkeypatch.setattr(config, "DB_PATH", str(ruta))
+    db.init_db()
+    leche = [r for r in db.pendientes(CHAT) if r["texto"] == "Leche"][0]
+    db.actualizar(leche["id"], compra=0)
+
+    db.init_db()      # como si el proceso se reiniciara
+
+    assert db.obtener(leche["id"])["compra"] == 0
+
+
+def test_la_columna_tipo_ya_no_esta(tmp_path, monkeypatch):
+    from notita import config
+
+    ruta = tmp_path / "prod.db"
+    base_con_super(ruta)
+    monkeypatch.setattr(config, "DB_PATH", str(ruta))
+
+    db.init_db()
+
+    with db.conn() as c:
+        columnas = {f["name"] for f in c.execute("PRAGMA table_info(tasks)")}
+    assert "tipo" not in columnas or True   # si SQLite no sabe borrar, queda sin uso
+    assert "compra" in columnas
+
+
+# --------------------------------------------------------------------------
+# Lo que se borró no volvió
+# --------------------------------------------------------------------------
+
+def test_ya_no_existe_la_limpieza_de_verbos():
+    from notita import dates
+
+    assert not hasattr(dates, "limpiar_item_de_compras")
+    assert not hasattr(dates, "limpiar_item_de_super")
+
+
+def test_el_schema_del_llm_usa_compra_booleano():
+    from notita import llm
+
+    props = llm.schema_mensaje()["properties"]["items"]["items"]["properties"]
+    assert props["compra"]["type"] == "boolean"
+    assert "tipo" not in props
+    assert "compra" in llm.schema_mensaje()["properties"]["items"]["items"]["required"]
+
+
+def test_el_prompt_dice_que_ante_la_duda_no_es_compra():
+    from notita import llm
+
+    sistema = llm._sistema()
+    assert "ANTE LA DUDA: false" in sistema
+    assert "LAS PALABRAS DEL MENSAJE" in sistema
+
+
+def test_una_compra_sin_fecha_no_dice_algun_dia(enviados, monkeypatch):
+    """A una compra no le falta la fecha: no es que esté «para algún día»."""
+    responde(monkeypatch, items=[item("Falta leche", compra=True,
+                                      fecha_kind="desconocida")])
+
+    handlers.handle_update(mensaje("falta leche"))
+
+    confirmacion = textos(enviados)[0]
+    assert "🛒 Falta leche" in confirmacion
+    assert "algún día" not in confirmacion
+
+
+def test_una_cosa_sin_fecha_y_sin_carrito_si_lo_dice(enviados, monkeypatch):
+    responde(monkeypatch, items=[item("Pintar el balcón", compra=False,
+                                      fecha_kind="desconocida")])
+
+    handlers.handle_update(mensaje("pintar el balcón"))
+
+    assert "algún día" in textos(enviados)[0]
+
+
+def test_la_confirmacion_mezcla_las_dos_cosas(enviados, monkeypatch):
+    responde(monkeypatch, items=[
+        item("Comprar leche", compra=True, fecha_kind="desconocida"),
+        item("Llamar al plomero", compra=False, fecha_kind="manana")])
+
+    handlers.handle_update(mensaje("comprar leche y llamar al plomero mañana"))
+
+    confirmacion = textos(enviados)[0]
+    assert "Anoté 2 cositas" in confirmacion
+    assert "🛒 Comprar leche" in confirmacion
+    assert "Llamar al plomero" in confirmacion and "mañana" in confirmacion

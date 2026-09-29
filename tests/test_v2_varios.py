@@ -104,17 +104,18 @@ def test_cambiar_el_responsable(enviados):
     assert db.obtener(tid)["responsable"] == "barbu"
 
 
-def test_mover_a_compras_y_volver_conserva_la_fecha(enviados):
-    tid = db.crear_tarea(CHAT, "comprar pan", due=hoy(), hora="18:00")
+def test_la_etiqueta_de_compra_es_un_toggle(enviados):
+    """Ya no se «mueve» nada: se marca y se desmarca, sin tocar el resto."""
+    tid = db.crear_tarea(CHAT, "Comprar pan", due=hoy(), hora="18:00")
 
     handlers.handle_update(click(cb.armar("sw", tid), cq_id="a"))
     fila = db.obtener(tid)
-    assert fila["tipo"] == "compras"
-    assert fila["due_date"] == hoy().isoformat(), "mover no es olvidarse del día"
-    assert fila["due_hora"] is None, "una lista de compras no tiene horarios"
+    assert fila["compra"] == 1
+    assert fila["due_date"] == hoy().isoformat()
+    assert fila["due_hora"] == "18:00", "la etiqueta no toca la hora"
 
     handlers.handle_update(click(cb.armar("sw", tid), cq_id="b"))
-    assert db.obtener(tid)["tipo"] == "casa"
+    assert db.obtener(tid)["compra"] == 0
 
 
 def test_renombrar_pide_respuesta_y_no_pasa_por_el_llm(enviados, monkeypatch):
@@ -330,7 +331,7 @@ def test_al_convertirse_el_grupo_se_muda_con_las_tareas(enviados, monkeypatch, t
     monkeypatch.setattr(config, "BASE_DIR", tmp_path)
     (tmp_path / ".env").write_text(f"TELEGRAM_TOKEN=x\nALLOWED_CHAT_ID={CHAT}\n")
     db.crear_tarea(CHAT, "sacar la basura", due=hoy())
-    db.crear_tarea(CHAT, "leche", tipo="compras", categoria="compras")
+    db.crear_tarea(CHAT, "leche", compra=True, categoria="compras")
 
     handlers.handle_update(aviso_de_mudanza())
 

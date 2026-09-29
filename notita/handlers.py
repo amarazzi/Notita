@@ -34,7 +34,6 @@ from .dates import (
     de_iso,
     fecha_imposible,
     hoy,
-    limpiar_item_de_compras,
     normalizar,
     parse_solo_fecha,
     proxima_ocurrencia,
@@ -238,8 +237,11 @@ def _mudarse(viejo: int, nuevo: int) -> None:
 def _comando(chat_id: int, texto: str, autor: str) -> None:
     partes = texto.split(maxsplit=1)
     comando = partes[0].lower().split("@")[0].lstrip("/")
-    if comando in ("tablero", "todo", "tareas", "start"):
-        tablero.publicar(chat_id)
+    if comando in ("tablero", "todo", "tareas", "start", "📋"):
+        # `pedido=True`: si alguien lo pide, el tablero va al final del chat aunque
+        # se haya editado hace un segundo. Antes editaba el de arriba y no se veía
+        # nada: «escribo tablero y no pasa nada».
+        tablero.publicar(chat_id, pedido=True)
     elif comando in ("super", "compras"):
         menus.abrir_compras(chat_id)
     elif comando in ("ayuda", "help"):
@@ -313,15 +315,9 @@ def _crear(chat_id: int, items: list, autor: str, mensaje_id: int | None,
             titulo = _titulo_de(item)
             if not titulo:
                 continue
-            # El modelo dice "compras"; se acepta "super" por los prompts viejos.
-            tipo = "compras" if item.get("tipo") in ("compras", "super") else "casa"
-            if tipo == "compras":
-                titulo = limpiar_item_de_compras(titulo)
-
-            ya = db.pendiente_igual(chat_id, titulo, tipo)
-            if ya is not None:
-                repetidos.append(views.titulo(ya))
-                continue
+            # La etiqueta 🛒 es lo único que distingue una cosa de otra. El texto se
+            # guarda como lo dijeron: no se le saca ningún verbo.
+            compra = bool(item.get("compra"))
 
             spec = llm.spec_de_item(item)
             if de_madrugada and spec.kind == "manana":
@@ -335,17 +331,18 @@ def _crear(chat_id: int, items: list, autor: str, mensaje_id: int | None,
                 fecha, hora = None, None
             else:
                 fecha, hora = resolver_momento(spec)
-            if tipo == "compras":
-                # La fecha SE CONSERVA: «para el asado del sábado falta carbón» es
-                # una compra con día. Lo que no aplica a una lista de compras es la
-                # hora ni la recurrencia.
-                hora, rec = None, None
-            elif fecha is None and rec is not None:
+            if fecha is None and rec is not None:
                 fecha = _primera_ocurrencia(rec, ref)
 
+            # ¿Ya estaba? Entonces no se anota de nuevo; y si ahora trae fecha, se
+            # la ponemos y lo decimos.
+            ya = db.pendiente_igual(chat_id, titulo)
+            if ya is not None:
+                repetidos.append(_actualizar_lo_que_ya_estaba(ya, fecha, hora, ref))
+                continue
+
             creados.append(db.crear_tarea(
-                chat_id, titulo, tipo=tipo,
-                categoria="compras" if tipo == "compras" else _categoria(item),
+                chat_id, titulo, compra=compra, categoria=_categoria(item),
                 responsable=_responsable(item, texto, autor), due=fecha, recurrencia=rec,
                 created_by=autor, hora=hora, mensaje_origen_id=mensaje_id))
     except Exception:
@@ -367,12 +364,27 @@ def _crear(chat_id: int, items: list, autor: str, mensaje_id: int | None,
     tablero.actualizar(chat_id)
 
 
+def _actualizar_lo_que_ya_estaba(row, fecha, hora, ref: date) -> str:
+    """Si lo que ya estaba no tenía fecha y ahora la dijeron, se la ponemos.
+
+    Decir «ya estaba» y nada más hacía perder la única información nueva del
+    mensaje.
+    """
+    nueva = fecha.isoformat() if fecha else None
+    if nueva and nueva != row["due_date"]:
+        db.actualizar(row["id"], due_date=nueva, due_hora=hora)
+        fila = db.obtener(row["id"])
+        return (f"{views.titulo_html(fila)}, le puse "
+                f"para {views.cuando(fecha, hora, ref)}")
+    return views.titulo_html(row)
+
+
 def _confirmacion(chat_id: int, filas: list, repetidos: list[str],
                   imposibles: list[str], de_madrugada: bool,
                   ref: date, ids_sin_fecha: list[int] | None = None) -> tuple[str, list]:
     lineas = []
     if filas:
-        fechas = {f["due_date"] for f in filas if f["tipo"] == "casa"}
+        fechas = {f["due_date"] for f in filas}
         una_sola = len(filas) > 1 and len(fechas) == 1 and None not in fechas
         cuantas = "Anoté 1 cosita 🤍" if len(filas) == 1 else f"Anoté {len(filas)} cositas 🤍"
         if una_sola:
@@ -384,7 +396,7 @@ def _confirmacion(chat_id: int, filas: list, repetidos: list[str],
         for f in filas:
             lineas.append(views.linea(f, ref, con_fecha=not una_sola))
     for repetido in repetidos:
-        lineas.append(f"👀 Ya estaba: {telegram.escapar(repetido)}")
+        lineas.append(f"👀 Ya estaba: {repetido}")
     for imposible in imposibles:
         lineas.append(f"📅 Esa fecha no existe, dejé «{telegram.escapar(imposible)}» "
                       f"para algún día")
@@ -495,7 +507,7 @@ def _proponer(chat_id: int, data: dict, autor: str, ref: date,
               escuchado: str = "") -> None:
     accion = data.get("accion") or "ninguna"
     if accion == "vaciar_super":
-        rows = db.pendientes(chat_id, tipo="compras")
+        rows = db.pendientes(chat_id, compra=True)
         if not rows:
             telegram.enviar(chat_id, _con_prefijo(
                 escuchado, "La lista de compras ya está vacía 🛒"), silencioso=True)
@@ -563,15 +575,15 @@ def _resolver_candidatos(chat_id: int, data: dict, ref: date) -> list:
 
 
 def _por_conjunto(chat_id: int, conjunto: str, ref: date) -> list:
-    casa = db.pendientes(chat_id, tipo="casa")
+    cosas = db.pendientes(chat_id)
     manana = ref + timedelta(days=1)
-    secciones = tablero.repartir(casa, ref)
+    secciones = tablero.repartir(cosas, ref)
     if conjunto == "super":
-        return db.pendientes(chat_id, tipo="compras")
+        return db.pendientes(chat_id, compra=True)
     if conjunto == "todo":
-        return casa + db.pendientes(chat_id, tipo="compras")
+        return db.pendientes(chat_id)
     if conjunto == "manana":
-        return [r for r in casa if de_iso(r["due_date"]) == manana]
+        return [r for r in cosas if de_iso(r["due_date"]) == manana]
     return secciones.get(conjunto, [])
 
 
@@ -701,15 +713,13 @@ def _callback(cq: dict) -> None:
         _pedir_texto(chat_id, cq_id, row, "renombrar",
                      f"¿Cómo le ponemos a «{views.titulo_html(row)}»?")
     elif accion == "sw":
-        nuevo_tipo = "casa" if row["tipo"] == "compras" else "compras"
-        cambios = {"tipo": nuevo_tipo}
-        if nuevo_tipo == "compras":
-            # Se mantiene la fecha: mover algo a compras no es olvidarse de cuándo.
-            cambios.update({"categoria": "compras", "due_hora": None})
-        db.actualizar(row["id"], **cambios)
+        # Sólo la etiqueta: no se toca el texto, ni la fecha, ni nada más.
+        ahora_compra = not row["compra"]
+        db.actualizar(row["id"], compra=1 if ahora_compra else 0)
         db.vencer_deshacer_de([row["id"]])
-        telegram.responder_callback(cq_id, "🛒 A compras" if nuevo_tipo == "compras" else "📌 A tareas")
-        menus.cerrar(chat_id, message_id)
+        telegram.responder_callback(
+            cq_id, "🛒 Marcada como compra" if ahora_compra else "Sacada de compras")
+        menus.abrir(chat_id, row["id"], message_id, ref)
         tablero.actualizar(chat_id)
     elif accion == "x":
         _borrar(chat_id, message_id, cq_id, row, args)
@@ -751,15 +761,11 @@ def _completar(chat_id: int, message_id: int, cq_id: str, row, quien: str,
         aviso = f"✅ Hecho · la próxima {views.cuando(de_iso(nueva['due_date']), None, ref)}"
     telegram.responder_callback(cq_id, aviso)
     if message_id and _es_temporal(chat_id, message_id):
-        if _era_del_super(row):
+        if row["compra"]:
             menus.abrir_compras(chat_id, message_id)
         else:
             menus.cerrar(chat_id, message_id)
     tablero.actualizar(chat_id)
-
-
-def _era_del_super(row) -> bool:
-    return row["tipo"] == "compras"
 
 
 def _mover(chat_id: int, message_id: int, cq_id: str, row, cual: str, ref: date) -> None:
@@ -813,7 +819,7 @@ def _compras_todo(chat_id: int, message_id: int, cq_id: str, quien: str,
         telegram.responder_callback(cq_id)
         menus.confirmar_compras_todo(chat_id, message_id)
         return
-    rows = db.pendientes(chat_id, tipo="compras")
+    rows = db.pendientes(chat_id, compra=True)
     for row in rows:
         db.marcar_hecha(row["id"], quien)
     db.vencer_deshacer_de([r["id"] for r in rows])
@@ -911,7 +917,7 @@ def _era_manana(chat_id: int, message_id: int, cq_id: str, args: list,
     movidas = 0
     for item_id in registro["item_ids"]:
         row = db.obtener(item_id)
-        if row is not None and row["estado"] == "pendiente" and row["tipo"] == "casa":
+        if row is not None and row["estado"] == "pendiente":
             db.actualizar(item_id, due_date=manana)
             movidas += 1
     telegram.responder_callback(cq_id, f"📅 {movidas} para mañana")

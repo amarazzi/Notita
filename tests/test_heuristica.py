@@ -77,9 +77,10 @@ def test_sin_recurrencia_no_toca_el_texto():
 ])
 def test_lo_que_va_a_compras(frase):
     item = un_item(frase)
-    assert item["tipo"] == "compras"
+    assert item["compra"] is True
     assert item["categoria"] == "compras"
-    assert item["fecha_kind"] == "algun_dia"  # el súper no pregunta fecha
+    # Ya no se fuerza la fecha: una compra puede tener día, o ninguno.
+    assert item["fecha_kind"] in ("desconocida", "algun_dia")
 
 
 @pytest.mark.parametrize("frase", [
@@ -89,7 +90,7 @@ def test_lo_que_va_a_compras(frase):
     "falta sacar la basura",
 ])
 def test_lo_que_no_va_a_compras(frase):
-    assert un_item(frase)["tipo"] == "tarea"
+    assert un_item(frase)["compra"] is False
 
 
 @pytest.mark.parametrize("frase,categoria", [
@@ -133,14 +134,14 @@ def test_separa_por_comas():
     assert [i["titulo"] for i in data["items"]] == [
         "limpiar la heladera", "llamar al plomero", "comprar focos"]
     # «focos» es ferretería: en v2 va a tareas, no al súper.
-    assert [i["tipo"] for i in data["items"]] == ["tarea", "tarea", "tarea"]
+    assert [i["compra"] for i in data["items"]] == [False, False, False]
 
 
 def test_una_lista_de_compras_contagia_el_tipo():
     # El verbo está sólo en el primer pedazo: «comprar yerba, pan y dulce de leche».
     data = heuristica.interpretar("comprar yerba, pan y dulce de leche")
     assert [i["titulo"] for i in data["items"]] == ["comprar yerba", "pan", "dulce de leche"]
-    assert all(i["tipo"] == "compras" for i in data["items"])
+    assert all(i["compra"] for i in data["items"])
 
 
 def test_sin_comas_no_parte_la_frase():
@@ -193,11 +194,11 @@ def test_sin_api_key_igual_anota(enviados, monkeypatch):
 
     handlers.handle_update(mensaje("hay que limpiar la heladera el lunes, y falta leche"))
 
-    casa = db.pendientes(CHAT, tipo="casa")
-    compras = db.pendientes(CHAT, tipo="compras")
+    casa = db.pendientes(CHAT, compra=False)
+    compras = db.pendientes(CHAT, compra=True)
+    # El texto se guarda como lo dijeron, también en modo local.
     assert [r["texto"] for r in casa] == ["limpiar la heladera"]
-    # En el súper se guarda la cosa, sin el verbo: «falta leche» -> «leche».
-    assert [r["texto"] for r in compras] == ["leche"]
+    assert [r["texto"] for r in compras] == ["falta leche"]
     assert casa[0]["categoria"] == "limpieza"
     assert date.fromisoformat(casa[0]["due_date"]).weekday() == 0
     # En modo local no se disculpa: es el modo normal.
@@ -217,7 +218,7 @@ def test_sin_api_key_no_bloquea_si_falta_la_fecha(enviados, monkeypatch):
 
     handlers.handle_update(mensaje("hay que llamar al plomero"))
 
-    guardada = db.pendientes(CHAT, tipo="casa")[0]
+    guardada = db.pendientes(CHAT, compra=False)[0]
     assert guardada["due_date"] is None
     assert db.get_pending(CHAT) is None, "no queda esperando nada"
     assert "Corregir" in str(enviados)

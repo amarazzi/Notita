@@ -37,7 +37,7 @@ def abrir(chat_id: int, item_id: int, message_id: int | None = None,
     if row is None or row["estado"] != "pendiente":
         return
     texto = views.detalle(row, ref)
-    filas = _filas_super(item_id) if row["tipo"] == "compras" else _filas_tarea(row)
+    filas = _filas_tarea(row)
     if message_id:
         telegram.editar(chat_id, message_id, texto, filas)
         db.anotar_temporal(chat_id, message_id, "menu", TTL_MENU)
@@ -53,7 +53,8 @@ def _filas_tarea(row) -> list:
          {"text": "📅 Otro día", "callback_data": cb.armar("d+", item_id)}],
         [{"text": "👤 Quién", "callback_data": cb.armar("q+", item_id)},
          {"text": "✏️ Renombrar", "callback_data": cb.armar("r", item_id)},
-         {"text": "🛒 Mover a compras", "callback_data": cb.armar("sw", item_id)}],
+         {"text": "Sacar de compras" if row["compra"] else "🛒 Marcar como compra",
+          "callback_data": cb.armar("sw", item_id)}],
     ]
     ultima = [{"text": "🗑 Borrar", "callback_data": cb.armar("x", item_id)},
               {"text": "✖️ Cerrar", "callback_data": cb.armar("c")}]
@@ -63,15 +64,6 @@ def _filas_tarea(row) -> list:
     filas.append(ultima)
     return filas
 
-
-def _filas_super(item_id: int) -> list:
-    return [
-        [{"text": "✅ Tachar", "callback_data": cb.armar("ok", item_id)},
-         {"text": "📌 Mover a tareas", "callback_data": cb.armar("sw", item_id)}],
-        [{"text": "✏️ Renombrar", "callback_data": cb.armar("r", item_id)},
-         {"text": "🗑 Borrar", "callback_data": cb.armar("x", item_id)},
-         {"text": "✖️ Cerrar", "callback_data": cb.armar("c")}],
-    ]
 
 
 def submenu_dia(chat_id: int, message_id: int, item_id: int, ref: date | None = None) -> None:
@@ -139,7 +131,7 @@ def abrir_elegir(chat_id: int, ref: date | None = None) -> None:
     from . import tablero
 
     ref = ref or hoy()
-    secciones = tablero.repartir(db.pendientes(chat_id, tipo="casa"), ref)
+    secciones = tablero.repartir(db.pendientes(chat_id), ref)
     numeradas = []
     for clave, _ in tablero._TITULOS(ref):
         numeradas.extend(secciones.get(clave) or [])
@@ -147,6 +139,8 @@ def abrir_elegir(chat_id: int, ref: date | None = None) -> None:
         _publicar_temporal(chat_id, "No hay nada para cambiar ✨",
                            [[{"text": "✖️ Cerrar", "callback_data": cb.armar("c")}]], "menu")
         return
+    # Las compras sin fecha no están en el tablero, pero igual se pueden cambiar.
+    numeradas += [r for r in db.pendientes(chat_id, compra=True) if not r["due_date"]]
     filas = [[{"text": f"{i}. {views.recortar(views.titulo(row), 28)}",
                "callback_data": cb.armar("m", row["id"])}]
              for i, row in enumerate(numeradas[:30], start=1)]
@@ -157,7 +151,7 @@ def abrir_elegir(chat_id: int, ref: date | None = None) -> None:
 def abrir_seccion(chat_id: int, clave: str, ref: date | None = None) -> None:
     """Un mensaje temporal con esa sección expandida. El tablero no se toca."""
     ref = ref or hoy()
-    secciones = tablero.repartir(db.pendientes(chat_id, tipo="casa"), ref)
+    secciones = tablero.repartir(db.pendientes(chat_id), ref)
     rows = secciones.get(clave) or []
     if not rows:
         _publicar_temporal(chat_id, "Ahí no quedó nada ✨",
@@ -189,7 +183,7 @@ def _cuando_comprarlo(row, ref: date) -> str:
 def abrir_compras(chat_id: int, message_id: int | None = None,
                   ref: date | None = None) -> None:
     ref = ref or hoy()
-    rows = db.pendientes(chat_id, tipo="compras")
+    rows = db.pendientes(chat_id, compra=True)
     if not rows:
         texto = "La lista de compras está vacía 🛒"
         filas = [[{"text": "✖️ Cerrar", "callback_data": cb.armar("c")}]]
@@ -213,7 +207,7 @@ def abrir_compras(chat_id: int, message_id: int | None = None,
 
 
 def confirmar_compras_todo(chat_id: int, message_id: int) -> None:
-    rows = db.pendientes(chat_id, tipo="compras")
+    rows = db.pendientes(chat_id, compra=True)
     if not rows:
         abrir_compras(chat_id, message_id)
         return

@@ -36,7 +36,7 @@ def textos(enviados):
 
 
 def item(titulo, **campos):
-    base = {"titulo": titulo, "tipo": "tarea", "categoria": "otros",
+    base = {"titulo": titulo, "compra": False, "categoria": "otros",
             "responsable": "ninguno", "fecha_kind": "desconocida", "fecha_weekday": -1,
             "fecha_day": -1, "fecha_month": -1, "fecha_year": -1, "fecha_dias": -1,
             "fecha_hora": -1, "fecha_minuto": -1, "recur_kind": "ninguna",
@@ -73,10 +73,10 @@ def test_la_comoda_es_tarea_con_fecha_y_la_confirmacion_sale_de_la_base(
 
     handlers.handle_update(mensaje("comprar la cómoda para la habitación mañana"))
 
-    guardada = db.pendientes(CHAT, tipo="casa")
+    guardada = db.pendientes(CHAT, compra=False)
     assert len(guardada) == 1, "tiene que quedar guardada como tarea"
     assert guardada[0]["due_date"] == (hoy() + timedelta(days=1)).isoformat()
-    assert db.pendientes(CHAT, tipo="compras") == [], "no va al súper"
+    assert db.pendientes(CHAT, compra=True) == [], "no va al súper"
 
     confirmacion = textos(enviados)[0]
     assert "Comprar la cómoda para la habitación" in confirmacion
@@ -155,7 +155,7 @@ def test_a_las_0040_manana_es_hoy(enviados, monkeypatch):
 
     handlers.handle_update(mensaje("Recordamos mañana: sacar la basura"))
 
-    guardada = db.pendientes(CHAT, tipo="casa")[0]
+    guardada = db.pendientes(CHAT, compra=False)[0]
     assert guardada["due_date"] == hoy().isoformat(), "a las 00:40 «mañana» es hoy"
     confirmacion = textos(enviados)[0]
     assert "🌙" in confirmacion
@@ -169,7 +169,7 @@ def test_a_las_cinco_manana_es_manana(enviados, monkeypatch):
 
     handlers.handle_update(mensaje("mañana sacar la basura"))
 
-    guardada = db.pendientes(CHAT, tipo="casa")[0]
+    guardada = db.pendientes(CHAT, compra=False)[0]
     assert guardada["due_date"] == (hoy() + timedelta(days=1)).isoformat()
     assert not any("Era el" in b["text"] for b in botones(enviados))
 
@@ -184,7 +184,7 @@ def test_el_boton_era_el_lunes_mueve_todo_al_dia_siguiente(enviados, monkeypatch
     handlers.handle_update(click(boton["callback_data"]))
 
     manana = (hoy() + timedelta(days=1)).isoformat()
-    assert all(r["due_date"] == manana for r in db.pendientes(CHAT, tipo="casa"))
+    assert all(r["due_date"] == manana for r in db.pendientes(CHAT, compra=False))
 
 
 # --------------------------------------------------------------------------
@@ -192,34 +192,35 @@ def test_el_boton_era_el_lunes_mueve_todo_al_dia_siguiente(enviados, monkeypatch
 # --------------------------------------------------------------------------
 
 @pytest.mark.parametrize("titulo,tipo_llm,esperado", [
-    ("Leche", "compras", "compras"),
-    ("Detergente para los platos", "compras", "compras"),
-    ("Comprar la cómoda", "tarea", "casa"),
-    ("Comprar tornillos", "tarea", "casa"),
+    ("Leche", True, True),
+    ("Detergente para los platos", True, True),
+    ("Comprar la cómoda", False, False),
+    ("Comprar tornillos", False, False),
 ])
-def test_donde_cae_cada_cosa(enviados, monkeypatch, titulo, tipo_llm, esperado):
-    responde(monkeypatch, items=[item(titulo, tipo=tipo_llm,
+def test_la_etiqueta_de_compra(enviados, monkeypatch, titulo, tipo_llm, esperado):
+    responde(monkeypatch, items=[item(titulo, compra=tipo_llm,
                                       fecha_kind="algun_dia" if tipo_llm == "super" else "desconocida")])
     handlers.handle_update(mensaje(titulo))
-    assert len(db.pendientes(CHAT, tipo=esperado)) == 1
+    assert len(db.pendientes(CHAT, compra=esperado)) == 1
 
 
-def test_compras_guarda_solo_el_producto(enviados, monkeypatch):
-    responde(monkeypatch, items=[item("comprar detergente para los platos",
-                                      tipo="compras", fecha_kind="algun_dia")])
+def test_el_texto_no_se_toca_ni_en_compras(enviados, monkeypatch):
+    """Antes le sacábamos el verbo a los ítems de compras. Ya no: una sola regla."""
+    responde(monkeypatch, items=[item("Comprar detergente para los platos",
+                                      compra=True, fecha_kind="desconocida")])
     handlers.handle_update(mensaje("hay que comprar detergente para los platos"))
 
-    assert db.pendientes(CHAT, tipo="compras")[0]["texto"] == "detergente para los platos"
-    assert "Detergente para los platos" in textos(enviados)[0]
+    assert db.pendientes(CHAT)[0]["texto"] == "Comprar detergente para los platos"
+    assert "Comprar detergente para los platos" in textos(enviados)[0]
 
 
 def test_una_compra_puede_tener_fecha(enviados, monkeypatch):
     """El tipo y la fecha son independientes: «mañana compramos leche»."""
-    responde(monkeypatch, items=[item("Leche", tipo="compras", fecha_kind="manana")])
+    responde(monkeypatch, items=[item("Leche", compra=True, fecha_kind="manana")])
 
     handlers.handle_update(mensaje("mañana compramos leche"))
 
-    fila = db.pendientes(CHAT, tipo="compras")[0]
+    fila = db.pendientes(CHAT, compra=True)[0]
     assert fila["due_date"] == (hoy() + timedelta(days=1)).isoformat()
     assert fila["due_hora"] is None, "una lista de compras no tiene horarios"
 
@@ -229,11 +230,11 @@ def test_una_compra_puede_tener_fecha(enviados, monkeypatch):
 # --------------------------------------------------------------------------
 
 def test_no_anota_dos_veces_lo_mismo(enviados, monkeypatch):
-    responde(monkeypatch, items=[item("Leche", tipo="compras", fecha_kind="algun_dia")])
+    responde(monkeypatch, items=[item("Leche", compra=True, fecha_kind="algun_dia")])
     handlers.handle_update(mensaje("falta leche", update_id=1))
     handlers.handle_update(mensaje("falta leche", update_id=2))
 
-    assert len(db.pendientes(CHAT, tipo="compras")) == 1
+    assert len(db.pendientes(CHAT, compra=True)) == 1
     assert "Ya estaba: Leche" in textos(enviados)[-1]
 
 
@@ -243,7 +244,7 @@ def test_el_31_de_febrero_queda_para_algun_dia_y_lo_dice(enviados, monkeypatch):
                                       fecha_month=2)])
     handlers.handle_update(mensaje("pagar la expensa el 31 de febrero"))
 
-    guardada = db.pendientes(CHAT, tipo="casa")[0]
+    guardada = db.pendientes(CHAT, compra=False)[0]
     assert guardada["due_date"] is None, "nunca bloquear: se guarda sin fecha"
     confirmacion = textos(enviados)[0]
     assert "no existe" in confirmacion
@@ -290,7 +291,7 @@ def test_un_recado_para_manana_es_una_tarea(enviados, monkeypatch):
                                       fecha_kind="manana")])
     handlers.handle_update(mensaje("decile a Axel que mañana compre pan", uid=222))
 
-    guardada = db.pendientes(CHAT, tipo="casa")[0]
+    guardada = db.pendientes(CHAT, compra=False)[0]
     assert guardada["responsable"] == "axel"
     assert guardada["due_date"] == (hoy() + timedelta(days=1)).isoformat()
 
@@ -398,12 +399,12 @@ def test_el_responsable_necesita_estar_en_el_mensaje(texto, dijo_el_modelo, qued
 
 
 def test_un_responsable_inventado_no_llega_a_la_base(enviados, monkeypatch):
-    responde(monkeypatch, items=[item("Leche", tipo="compras", responsable="axel",
+    responde(monkeypatch, items=[item("Leche", compra=True, responsable="axel",
                                       fecha_kind="algun_dia")])
 
     handlers.handle_update(mensaje("comprar leche"))
 
-    assert db.pendientes(CHAT, tipo="compras")[0]["responsable"] == "ninguno"
+    assert db.pendientes(CHAT, compra=True)[0]["responsable"] == "ninguno"
     assert "Axel" not in textos(enviados)[0]
 
 
@@ -413,5 +414,5 @@ def test_pero_el_que_si_dijeron_llega(enviados, monkeypatch):
 
     handlers.handle_update(mensaje("Barbu tiene que llevar a Milo al veterinario mañana"))
 
-    assert db.pendientes(CHAT, tipo="casa")[0]["responsable"] == "barbu"
+    assert db.pendientes(CHAT, compra=False)[0]["responsable"] == "barbu"
     assert "Barbu" in textos(enviados)[0]

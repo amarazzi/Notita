@@ -28,8 +28,8 @@ ninguna modificación se ejecuta sin que alguien toque un botón
 | Fechas relativas | «mañana», «el jueves», «el finde», «todos los 10», «en 3 días» |
 | Fecha y hora | «llevar a Milo al veterinario el jueves a las 18» → guarda la hora y te da un botón para pasarlo al calendario |
 | Responsable | «Barbu tiene que llamar al veterinario» → queda a nombre de Barbu |
-| Lista de compras | «falta leche» va a compras. Un mueble, un electrodoméstico o un regalo es tarea, aunque diga «comprar»: hay que decidir, comparar o ir a un lugar puntual |
-| Compras con fecha | «para el asado del sábado falta carbón» → queda en compras **y** con día. El tipo y la fecha son independientes |
+| Etiqueta 🛒 | «falta leche» queda etiquetado como compra y se puede ver todo junto con `/compras`. Es **sólo una etiqueta**: no cambia el texto ni la fecha |
+| El texto, como lo dijiste | «comprar leche» queda «Comprar leche»; «falta leche», «Falta leche». Notita no reescribe lo que escribiste |
 | Recurrentes | «cambiar las piedritas cada semana», «regar cada 3 días» 🔁 |
 | Recados | «decile a Barbu que ya salí» → se lo dice en el momento, mencionándola |
 | Notas de voz 🎤 | Le mandás un audio de hasta 15 segundos y lo transcribe. Siempre muestra lo que escuchó, así se ve si entendió mal ([privacidad](#privacidad)) |
@@ -51,24 +51,28 @@ El **tablero** es un mensaje fijado en el grupo que se edita en el lugar:
 
 HOY · lun 28 · 2
 2. 🐾 Llevar a Milo al veterinario · 🕕 18:00 · Barbu
-3. 🔧 Comprar cómoda para la habitación
+3. 🛒 Falta carbón para el asado
 
 ESTA SEMANA · 3 ›
 🛒 COMPRAS · 4 ›
 
 [ ✅ 1. Agarrar sábanas y acolchado ]
 [ ✅ 2. Llevar a Milo al veterinario ]
-[ ✅ 3. Comprar cómoda para la habitación ]
+[ ✅ 3. 🛒 Falta carbón para el asado ]
 [ 📂 Esta semana · 3 ]  [ 🛒 Compras · 4 ]
 [ ⋯ Cambiar algo ]
 ```
+
+Hay **una sola clase de cosa**. La 🛒 es una etiqueta para filtrar: lo que tiene fecha
+va en su día —con carrito o sin él— y lo que tiene 🛒 **y no tiene fecha** no se lista
+una por una, se cuenta en el botón de Compras.
 
 - **✅** la da por hecha de un toque. Sin mensajes nuevos en el grupo. Se lleva la fila
   entera porque es lo que más se toca: blanco grande y título legible.
 - El **número** ata cada botón con su renglón: Telegram pone los botones todos juntos
   abajo, fuera de las secciones.
-- **⋯ Cambiar algo** lista las tareas para elegir cuál: mover de día, quién la hace,
-  renombrar, mandar a compras, borrar o agregar al calendario.
+- **⋯ Cambiar algo** lista las cosas para elegir cuál: mover de día, quién la hace,
+  renombrar, marcarla como compra 🛒, borrarla o agregarla al calendario.
 - Si tachás algo sin querer, aparece **↩️ Deshacer** en el tablero por 10 minutos.
 - Cada tarea aparece **en una sola sección**. Las colapsadas se abren en un mensaje
   aparte, así lo que toca uno no le cambia la pantalla al otro.
@@ -118,7 +122,7 @@ A las 20:00 (configurable) llega el único mensaje que suena:
 
 ```
 /tablero   publica el tablero al final del chat y lo fija (también: escribir «tablero»)
-/compras   la lista de compras, con botones para tachar (alias: /super)
+/compras   todo lo etiquetado 🛒, con botones para tachar (alias: /super)
 /parte     manda el parte a mano (modo prueba)
 /ayuda     cómo usarlo
 /chatid    devuelve el chat_id (sirve para configurarlo la primera vez)
@@ -518,7 +522,7 @@ Qué sigue funcionando igual:
 - **Todas las fechas**: «el lunes», «esta semana», «el 3 de octubre», «en dos semanas»,
   «algún día»... es el mismo módulo testeado que usa el modo con LLM.
 - **Recurrencias**: «cada semana», «todos los martes», «todos los 10».
-- **Lista de compras**: por señales como «falta», «comprar», «se acabó».
+- **Etiqueta 🛒**: por señales como «falta», «comprar», «se acabó».
 - **Responsable**: si el mensaje nombra a alguien de `NOTITA_PERSONAS`, o dice «los dos».
 - **Categorías**: por palabras clave (`pagar`→pagos, `veterinario`→mascotas, etc.).
 - Contesta los saludos y no anota los «jajaja».
@@ -589,7 +593,7 @@ Tres documentos, según qué necesites:
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt pytest
 cp .env.example .env
-pytest                 # 503 tests, sin red ni API keys
+pytest                 # 520 tests, sin red ni API keys
 python app.py          # http://localhost:5000
 ```
 

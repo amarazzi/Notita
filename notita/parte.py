@@ -79,12 +79,12 @@ def render(chat_id: int, ref: date | None = None) -> tuple[str, list]:
     """El texto y los botones del parte. Sin efectos: se puede testear sola."""
     ref = ref or hoy()
     manana = ref + timedelta(days=1)
-    casa = db.pendientes(chat_id, tipo="casa")
-    compras = db.pendientes(chat_id, tipo="compras")
+    cosas = db.pendientes(chat_id)
+    compras_sueltas = [r for r in cosas if r["compra"] and not r["due_date"]]
 
-    de_manana = [r for r in casa if de_iso(r["due_date"]) == manana]
-    de_hoy = [r for r in casa if de_iso(r["due_date"]) == ref]
-    viejas = [r for r in casa if de_iso(r["due_date"]) and de_iso(r["due_date"]) < ref]
+    de_manana = [r for r in cosas if de_iso(r["due_date"]) == manana]
+    de_hoy = [r for r in cosas if de_iso(r["due_date"]) == ref]
+    viejas = [r for r in cosas if de_iso(r["due_date"]) and de_iso(r["due_date"]) < ref]
 
     lineas, filas = [], []
     if de_manana:
@@ -115,10 +115,10 @@ def render(chat_id: int, ref: date | None = None) -> tuple[str, list]:
                 {"text": "Ver", "callback_data": cb.armar("sec", "vencidas")},
             ])
 
-    if compras:
-        lineas.extend(_lineas_compras(compras, manana))
+    if compras_sueltas:
+        lineas.append(f"\n🛒 En compras hay <b>{len(compras_sueltas)}</b> cosas")
 
-    if not de_manana and not pendientes_hoy and not compras:
+    if not de_manana and not pendientes_hoy and not compras_sueltas:
         # Nada para contar: un mensaje corto, o nada si así está configurado.
         if not config.PARTE_VACIO:
             return "", []
@@ -127,28 +127,13 @@ def render(chat_id: int, ref: date | None = None) -> tuple[str, list]:
     return "\n".join(lineas), filas
 
 
-def _lineas_compras(compras, manana: date) -> list[str]:
-    """El parte nombra lo que hay que comprar para mañana, no sólo cuántas cosas."""
-    para_manana = [r for r in compras if de_iso(r["due_date"])
-                   and de_iso(r["due_date"]) <= manana]
-    lineas = []
-    if para_manana:
-        lineas.append("\n🛒 <b>Para mañana:</b> "
-                      + ", ".join(views.titulo_html(r) for r in para_manana[:8]))
-    resto = len(compras) - len(para_manana)
-    if resto:
-        lineas.append(f"\n🛒 En compras hay <b>{resto}</b> cosas más"
-                      if para_manana else
-                      f"\n🛒 En compras hay <b>{resto}</b> cosas")
-    return lineas
-
 
 def pasar_todas_a_manana(chat_id: int, ref: date | None = None) -> int:
     """El botón del parte. Lo pide una persona: no es automático."""
     ref = ref or hoy()
     manana = (ref + timedelta(days=1)).isoformat()
     movidas = 0
-    for row in db.pendientes(chat_id, tipo="casa"):
+    for row in db.pendientes(chat_id):
         d = de_iso(row["due_date"])
         if d and d <= ref:
             db.actualizar(row["id"], due_date=manana)

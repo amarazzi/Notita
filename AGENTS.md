@@ -31,6 +31,9 @@ El porqué de cada uno está en [docs/DISEÑO-v2.md](docs/DISEÑO-v2.md).
 
 Dos corolarios que se violan sin querti:
 
+- **Hay una sola clase de cosa.** Texto, fecha, hora, responsable, recurrencia y la
+  etiqueta `compra` (🛒). La etiqueta sólo filtra: no cambia cómo se guarda ni cómo se
+  nombra. Y el texto se guarda **como lo dijeron**: no se le saca ningún verbo.
 - **El LLM no decide sobre datos que existen.** Los ids de una propuesta los resuelve
   el servidor contra la base. Y si el modelo devuelve algo que el mensaje no dice
   (por ejemplo, un responsable), se descarta: ver `handlers._responsable`.
@@ -111,6 +114,7 @@ Todas pasaron de verdad. Están acá para no repetirlas:
 | El proxy de PythonAnywhere falla de a ratos | Por eso existe la cola de salida (`salientes`): un mensaje que no sale queda guardado y se reintenta |
 | Postergar la edición del tablero | Un debounce de 3 segundos hacía que el ✅ no se reflejara: se tocaba el botón y «no pasaba nada» |
 | Confirmar con lo que devolvió el LLM | Anunció «cómoda a compras» sin haber guardado nada. De ahí el principio 4 |
+| Que el tipo cambie **cómo** se guarda algo | A las compras se les sacaba el verbo: rompía los duplicados y perdía palabras («Regalo para mamá») |
 | Un `message_id` es de **un** chat | Al mudarse de grupo no se migran: se descartan y el tablero se publica de cero |
 
 ## Deploy

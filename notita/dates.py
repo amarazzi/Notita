@@ -579,19 +579,6 @@ _VERBOS_DE_COMPRA = re.compile(
     r"reponer|encargar|pedir)\s+", re.IGNORECASE)
 
 
-def limpiar_item_de_compras(texto: str) -> str:
-    """«comprar detergente para los platos» -> «detergente para los platos».
-
-    En la lista de compras el verbo no aporta y además queda inconsistente: «falta
-    leche» daba «Leche» y «comprar lavandina» daba «Comprar lavandina».
-    """
-    limpio = " ".join((texto or "").split())
-    limpio = _VERBOS_DE_COMPRA.sub("", limpio, count=1)
-    limpio = re.sub(r"^(?:falta|faltan|se acabo|se acabó|se termino|se terminó)\s+", "",
-                    limpio, count=1, flags=re.IGNORECASE)
-    limpio = limpio.strip(" ,.;")
-    return limpio or " ".join((texto or "").split())
-
 
 def texto_recurrencia(rec: Recurrencia | None) -> str:
     """«cada 3 días», «todos los martes», «todos los 10». Vacío si no se repite."""

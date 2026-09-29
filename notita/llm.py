@@ -52,8 +52,8 @@ CONJUNTOS = ("ninguno", "hoy", "manana", "vencidas", "semana", "algun_dia", "sup
 def _item_props() -> dict:
     """El enum de `responsable` depende de quién vive en la casa: se arma al vuelo."""
     return {
-        "titulo": {"type": "string", "description": "La cosa a hacer, en infinitivo, corta y clara, bien escrita (sin abreviaturas). Sin la fecha ni el nombre de quién la hace. Si es de compras, SÓLO el producto, sin el verbo: 'comprar detergente para los platos' -> 'Detergente para los platos'; 'falta carbón para el sábado' -> 'Carbón'."},
-        "tipo": {"type": "string", "enum": ["tarea", "compras"], "description": "compras = se resuelve metiéndolo al carrito en una salida de compras normal (comida, limpieza, ferretería o vivero chico: pilas, cemento, tierra). tarea = hay que decidir, comparar, coordinar o ir a un lugar puntual (muebles, electrodomésticos, regalos, trámites), aunque el mensaje diga 'comprar'. El tipo NO depende de si tiene fecha: una compra puede tener día."},
+        "titulo": {"type": "string", "description": "La cosa, CON LAS PALABRAS DEL MENSAJE. Sacá sólo la fecha y el nombre de quién la hace. NO saques ni agregues verbos y no la reescribas: 'falta leche' -> 'Falta leche'; 'comprar detergente para los platos' -> 'Comprar detergente para los platos'; 'hay que llamar al plomero el lunes' -> 'Llamar al plomero'. Arreglá sólo los errores de tipeo y las abreviaturas ('pa' -> 'para')."},
+        "compra": {"type": "boolean", "description": "true si es algo que se resuelve metiéndolo al carrito en una salida de compras normal: comida, limpieza, cosas chicas de ferretería o vivero (pilas, cemento, tierra, lamparitas). false para todo lo demás, incluso si dice 'comprar': muebles, electrodomésticos, regalos, pasajes, trámites. ANTE LA DUDA: false. Es sólo una etiqueta para filtrar; no cambia nada más."},
         "categoria": {"type": "string", "enum": list(config.CATEGORIAS)},
         "responsable": {"type": "string", "enum": list(config.PERSONAS)},
         "fecha_kind": {"type": "string", "enum": list(KINDS)},
@@ -84,8 +84,8 @@ def schema_mensaje() -> dict:
                 "items": {
                     "type": "object",
                     "properties": props,
-                    "required": ["titulo", "tipo", "categoria", "responsable", "fecha_kind",
-                                 "recur_kind"],
+                    "required": ["titulo", "compra", "categoria", "responsable",
+                                 "fecha_kind", "recur_kind"],
                     "propertyOrdering": list(props),
                 },
             },
@@ -170,16 +170,17 @@ Reglas de los items:
   * pagos: SOLO si hay que pagar plata. tramites: gestiones, papeles, turnos.
   * arreglos: reparar o instalar. limpieza: limpiar u ordenar.
   * mascotas: los animales de la casa. otros: lo que no encaje.
-- tipo: lo define QUÉ ES la cosa, no si tiene fecha ni cómo lo dijeron.
-  * "compras": se resuelve metiéndolo al carrito en una salida de compras normal.
-    Comida, limpieza, cosas de ferretería o vivero chicas (pilas, cemento, tierra,
-    lamparitas). "falta leche", "se acabó el café", "para el asado falta carbón".
-  * "tarea": hay que decidir, comparar, coordinar o ir a un lugar puntual. Muebles,
-    electrodomésticos, regalos, trámites, cosas para encargar. "comprar la cómoda",
-    "comprar el regalo de mamá", "comprar los pasajes". Aunque diga "comprar".
-  * Ante la duda: tarea.
-  * UNA COMPRA PUEDE TENER FECHA: "mañana compramos leche" es compras con fecha de
-    mañana, no una tarea. La fecha y el tipo son independientes.
+- titulo: LAS PALABRAS DEL MENSAJE. Saca la fecha y el nombre de quién la hace, y
+  nada más. No saques verbos, no agregues verbos, no lo reescribas más lindo:
+  "falta leche" -> "Falta leche"; "comprar leche" -> "Comprar leche". Sí corregí
+  tipeos y abreviaturas.
+- compra: es sólo una ETIQUETA (🛒) para poder filtrar. true si se resuelve
+  metiéndolo al carrito en una salida de compras normal: comida, limpieza, cosas
+  chicas de ferretería o vivero. false para lo que hay que decidir, comparar o ir a
+  buscar a un lugar puntual: muebles, electrodomésticos, regalos, pasajes, trámites,
+  aunque el mensaje diga "comprar". ANTE LA DUDA: false.
+  La etiqueta NO tiene nada que ver con la fecha: "mañana compramos leche" es una
+  compra con fecha de mañana.
 - fecha_kind: elegí la INTENCIÓN, no calcules la fecha. Nunca devuelvas una fecha hecha.
   * "el lunes" -> dia_semana con fecha_weekday=0
   * "el lunes de la semana que viene" -> dia_semana_prox
@@ -189,6 +190,8 @@ Reglas de los items:
   * "todos los 10" -> dia_del_mes con fecha_day=10
   * "algún día", "no sé", "cuando se pueda" -> algun_dia
   * si el mensaje NO dice cuándo -> desconocida
+  * NO INVENTES FECHAS. "hoy" SÓLO si dicen "hoy" (o "esta tarde", "esta noche").
+    "comprar tierra para las macetas" no dice cuándo: es desconocida.
 - La hora, si la dicen, va en fecha_hora (24h) y fecha_minuto.
   "a las 6 de la tarde" -> 18. "18:30" -> 18 y 30.
 - recur_kind si se repite: "cada semana" -> semanal; "todos los 10" -> mensual con

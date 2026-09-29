@@ -237,22 +237,41 @@ Es el único envío programado y el único con notificación.
     `NOTITA_AUDIOS=0`. La contrapartida está escrita en la sección de privacidad del
     README, que cubre texto y audio.
 
-## El tipo y la fecha son independientes
+## Una sola clase de cosa
 
-Al principio «compras» significaba «producto de almacén **sin fecha**», y la fecha
-decidía el tipo. Con el uso real se vio que son dos preguntas distintas:
+Hubo dos intentos antes de este. Primero «compras» era «producto de almacén **sin
+fecha**» y la fecha decidía el tipo. Después se separaron tipo y fecha, pero el tipo
+seguía cambiando **cómo** se guardaba la cosa: a los ítems de compras se les sacaba el
+verbo. De esa asimetría salieron casi todos los bugs de esos días: la cómoda mal
+clasificada, «Regalo para mamá» sin el «Comprar», duplicados que no se detectaban
+porque un lado tenía el verbo y el otro no, y la fecha que se perdía al mover algo.
 
-- **El tipo lo define qué es la cosa.** «compras» se resuelve metiéndolo al carrito
-  en una salida normal (comida, limpieza, ferretería o vivero chico). «tarea» es lo
-  que hay que decidir, comparar, coordinar o ir a buscar a un lugar puntual: muebles,
-  electrodomésticos, regalos, trámites, aunque el mensaje diga «comprar».
-- **La fecha es opcional para los dos.** «para el asado del sábado falta carbón» es
-  una compra con día.
+Ahora hay **una sola clase de cosa**: texto, fecha opcional, hora opcional,
+responsable opcional, recurrencia opcional, y una **etiqueta booleana `compra`** (🛒).
 
-Una compra con fecha **nunca** aparece en las secciones de días del tablero: ahí van
-las tareas. Se ve en la lista de compras (ordenada por día), en el contador del botón
-(«🛒 Compras · 5 (1 para mañana)») y en el parte de la noche anterior («🛒 Para
-mañana: carbón»). Y mover algo entre compras y tareas **conserva la fecha**.
+- **La etiqueta no cambia nada.** Ni cómo se guarda, ni cómo se nombra, ni dónde vive.
+  Sólo sirve para filtrar: `/compras` muestra lo etiquetado.
+- **El texto se guarda como lo dijeron**, con mayúscula inicial y nada más. «comprar
+  leche» → «Comprar leche»; «falta leche» → «Falta leche». No se saca ningún verbo en
+  ningún caso. Si lo que se guarda es lo que se dijo, no hay forma de que la
+  confirmación mienta.
+- **Ante la duda, sin 🛒.** Un error de etiqueta no tiene consecuencias: la cosa sigue
+  estando en el tablero.
+
+Lo único especial de la etiqueta, y es de visualización: una cosa con 🛒 **y sin
+fecha** no se lista una por una en el tablero (serían quince renglones de almacén
+tapando las tareas); se cuenta en el botón «🛒 Compras · N ›». Con fecha, va en su día
+como cualquier otra cosa, con el carrito adelante.
+
+Los duplicados se comparan con **una sola regla**: sin tildes, sin mayúsculas, sin
+artículos y sin los arranques de relleno («hay que», «falta», «comprar»…). Eso hace que
+«Falta leche» y «Comprar leche» sean lo mismo. Y si lo que llega ya estaba pero **trae
+una fecha** que el otro no tenía, se la pone y lo dice: decir «ya estaba» y nada más
+tiraba la única información nueva del mensaje.
+
+En la base, `tipo` se reemplazó por la columna `compra`. La migración etiqueta lo que
+era del súper sin tocarle el texto, corre **una sola vez** (si alguien saca algo de
+compras, no se lo vuelve a poner) y deja `tipo` borrada.
 
 ## Lo que el uso real nos hizo cambiar
 
@@ -265,3 +284,4 @@ porque el error es más útil que la conclusión:
 | Un `⋯` al lado de cada tarea | Telegram le da media fila y cortaba los títulos al medio. Pasó a ser `⋯ Cambiar algo` |
 | Botones con toda la info (hora, responsable) | No entra. La info va al texto, el botón va corto |
 | Arreglos de esquema dentro de la migración versionada | La migración sale temprano si ya corrió, así que las bases que necesitaban el arreglo no lo recibían. Van sueltos en `init_db` |
+| Que el tipo de una cosa cambiara **cómo** se guarda | A las compras se les sacaba el verbo, y eso rompía los duplicados y perdía palabras. Ahora 🛒 es sólo una etiqueta |

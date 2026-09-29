@@ -37,7 +37,7 @@ def sembrar(ref: date) -> dict[str, int]:
 @pytest.mark.parametrize("ref", SEMANA, ids=[d.strftime("%a") for d in SEMANA])
 def test_cada_tarea_aparece_en_una_sola_seccion(enviados, ref):
     sembrar(ref)
-    secciones = tablero.repartir(db.pendientes(CHAT, tipo="casa"), ref)
+    secciones = tablero.repartir(db.pendientes(CHAT, compra=False), ref)
 
     vistos = [r["id"] for rows in secciones.values() for r in rows]
     assert len(vistos) == len(set(vistos)), f"hay tareas repetidas un {ref:%A}"
@@ -56,7 +56,7 @@ def test_el_tablero_no_repite_titulos(enviados, ref):
 def test_un_domingo_esta_semana_queda_vacia_y_el_lunes_va_en_manana(enviados):
     domingo = date(2026, 10, 4)
     ids = sembrar(domingo)
-    secciones = tablero.repartir(db.pendientes(CHAT, tipo="casa"), domingo)
+    secciones = tablero.repartir(db.pendientes(CHAT, compra=False), domingo)
 
     assert [r["id"] for r in secciones["manana"]] == [ids["manana"]]
     assert secciones["semana"] == [], "el domingo no queda semana por delante"
@@ -64,7 +64,7 @@ def test_un_domingo_esta_semana_queda_vacia_y_el_lunes_va_en_manana(enviados):
 
 def test_desde_el_lunes_la_semana_llega_hasta_el_domingo(enviados):
     ids = sembrar(LUNES)
-    secciones = tablero.repartir(db.pendientes(CHAT, tipo="casa"), LUNES)
+    secciones = tablero.repartir(db.pendientes(CHAT, compra=False), LUNES)
 
     assert ids["en_dos"] in [r["id"] for r in secciones["semana"]]
     assert ids["en_diez"] in [r["id"] for r in secciones["adelante"]]
@@ -143,7 +143,7 @@ def test_los_titulos_se_cortan_en_un_limite_de_palabra(enviados):
 def test_todos_los_callback_data_entran_en_64_bytes(enviados):
     for i in range(5):
         db.crear_tarea(CHAT, f"cosa {i}", due=hoy() + timedelta(days=i))
-    db.crear_tarea(CHAT, "leche", tipo="compras", categoria="compras")
+    db.crear_tarea(CHAT, "leche", compra=True, categoria="compras")
 
     _, filas = tablero.render(CHAT)
     datos = [b["callback_data"] for fila in filas for b in fila if "callback_data" in b]
@@ -310,8 +310,8 @@ def test_los_temporales_vencidos_se_borran(enviados):
 
 
 def test_el_super_renueva_su_tiempo_con_cada_toque(enviados):
-    a = db.crear_tarea(CHAT, "leche", tipo="compras", categoria="compras")
-    db.crear_tarea(CHAT, "yerba", tipo="compras", categoria="compras")
+    a = db.crear_tarea(CHAT, "leche", compra=True, categoria="compras")
+    db.crear_tarea(CHAT, "yerba", compra=True, categoria="compras")
     handlers.handle_update(click(cb.armar("sup"), message_id=20))
     mensaje_super = [e for e in enviados if e["metodo"] == "sendMessage"][-1]
     mid = mensaje_super["message_id"] if "message_id" in mensaje_super else 1
@@ -531,7 +531,7 @@ def test_ningun_boton_del_tablero_se_corta(enviados):
     """
     tid = db.crear_tarea(CHAT, "comprar cómoda para la habitación", due=hoy())
     db.crear_tarea(CHAT, "otra cosa", due=hoy())
-    db.crear_tarea(CHAT, "leche", tipo="compras", categoria="compras")
+    db.crear_tarea(CHAT, "leche", compra=True, categoria="compras")
     handlers.handle_update(click(cb.armar("ok", tid)))
 
     texto, filas = tablero.render(CHAT)
@@ -546,7 +546,7 @@ def test_ningun_boton_del_tablero_se_corta(enviados):
 def test_los_atajos_van_de_a_dos_por_fila(enviados):
     """Apilados quedaban como una pila de losas grises."""
     db.crear_tarea(CHAT, "pintar el balcón")                       # algún día
-    db.crear_tarea(CHAT, "leche", tipo="compras", categoria="compras")
+    db.crear_tarea(CHAT, "leche", compra=True, categoria="compras")
 
     _, filas = tablero.render(CHAT)
 

@@ -21,10 +21,12 @@ Y en el grupo, escribí `tablero` para tener el tablero fijado a la vista.
 
 | # | Mandá | Tiene que pasar |
 |---|---|---|
-| 1.1 | `hay que limpiar la heladera, llamar al plomero y falta leche` | «Anoté 3 cositas». La leche va al **compras**, las otras dos a tareas |
+| 1.1 | `hay que limpiar la heladera, llamar al plomero y falta leche` | «Anoté 3 cositas». La leche lleva 🛒; las otras dos, no |
 | 1.2 | `llevar a Milo al veterinario el jueves a las 18` | Muestra `jue …` **y `🕕 18:00`**, y aparece **📅 Agregar al calendario** |
 | 1.3 | Tocá ese botón | Se abre Google Calendar con el evento cargado, con la hora correcta |
-| 1.4 | `comprar la cómoda para la habitación mañana` | Va a **tareas**, no a compras (es un mueble), con fecha de mañana |
+| 1.4 | `comprar la cómoda para la habitación mañana` | Texto **completo** («Comprar la cómoda para la habitación»), sin 🛒, con fecha de mañana |
+| 1.4b | `para el asado del sábado falta carbón` | Lleva 🛒 **y** queda bajo el sábado en el tablero |
+| 1.4c | `comprar regalo para mamá antes del domingo` | El texto conserva el «Comprar»: no le comemos el verbo |
 | 1.5 | `Barbu tiene que sacar la basura` | Queda a nombre de **Barbu** |
 | 1.6 | `comprar pan` | **No** queda a nombre de nadie: nadie dijo quién |
 | 1.7 | `regar las plantas cada 3 días` | Dice `🔁 cada 3 días` y arranca **hoy** |
@@ -52,7 +54,8 @@ mensaje, y `✏️ Corregir` abre el menú del ítem.
 | 2.8 | `⋯` → `✏️ Renombrar` y contestá al mensaje | Cambia **sólo** esa tarea |
 | 2.9 | `⋯` → `🗑 Borrar` | La borra y ofrece deshacer |
 | 2.10 | `⋯` de una recurrente → `🗑 Borrar` | Pregunta **«Sólo esta vez»** o **«Todas»** |
-| 2.11 | Tocá `🛒 Compras` | Lista aparte con un botón por cosa. Tocá una: se tacha ahí mismo |
+| 2.11 | Tocá `🛒 Compras` | Lista aparte con **todo** lo etiquetado (con fecha y sin fecha). Tocá una: se tacha ahí mismo |
+| 2.11b | `⋯` en algo → `🛒 Marcar como compra` | Le pone la etiqueta **sin** tocar el texto ni la fecha |
 | 2.12 | En esa lista, `✅ Compramos todo` | Pide confirmación antes de tachar todo |
 | 2.13 | Esperá 5 minutos sin tocar un menú abierto | Se borra solo |
 

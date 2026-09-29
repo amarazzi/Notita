@@ -38,9 +38,11 @@ MAX_POR_SECCION = 25
 def render(chat_id: int, ref: date | None = None) -> tuple[str, list]:
     """El texto y el teclado del tablero. Sin efectos: se puede testear sola."""
     ref = ref or hoy()
-    casa = db.pendientes(chat_id, tipo="casa")
-    compras = db.pendientes(chat_id, tipo="compras")
-    secciones = repartir(casa, ref)
+    cosas = db.pendientes(chat_id)
+    # Lo único especial de la etiqueta 🛒, y es de visualización: una compra SIN
+    # fecha no se lista una por una; se cuenta en el botón de Compras.
+    compras_sueltas = [r for r in cosas if r["compra"] and not r["due_date"]]
+    secciones = repartir(cosas, ref)
 
     lineas = [f"📋 <b>La casa</b> · {views.dia_largo(ref)}"]
     filas: list[list[dict]] = []
@@ -75,24 +77,23 @@ def render(chat_id: int, ref: date | None = None) -> tuple[str, list]:
             atajos.append({"text": f"{_icono(clave)} {_nombre_corto(clave)} · {len(rows)}",
                            "callback_data": cb.armar("sec", clave)})
 
-    compras_aparte: list = []
-    if compras:
-        lineas.append(f"\n🛒 <b>COMPRAS</b> · {len(compras)}{_para_cuando(compras, ref)} ›")
-        _boton_compras(compras_aparte, atajos, compras, ref)
+    if compras_sueltas:
+        lineas.append(f"\n🛒 <b>COMPRAS</b> · {len(compras_sueltas)} ›")
+        atajos.append({"text": f"🛒 Compras · {len(compras_sueltas)}",
+                       "callback_data": cb.armar("sup")})
 
     # De a dos por fila: son etiquetas cortas y apiladas quedaban como una pila de
     # losas grises.
     for i in range(0, len(atajos), 2):
         filas.append(atajos[i:i + 2])
-    filas.extend(compras_aparte)
 
-    if not casa and not compras:
+    if not cosas:
         lineas.append("\nNo hay nada pendiente. Qué lujo ✨")
 
     # El botón del deshacer va corto para que Telegram no lo corte («↩️ Desha…cómoda…»);
     # QUÉ se deshace se dice en el texto, donde hay lugar de sobra.
     acciones = []
-    if casa:
+    if cosas:
         acciones.append({"text": "⋯ Cambiar algo", "callback_data": cb.armar("elegir")})
     deshacer = db.ultimo_deshacer(chat_id)
     if deshacer:
@@ -108,16 +109,20 @@ def render(chat_id: int, ref: date | None = None) -> tuple[str, list]:
     return texto, filas
 
 
-def repartir(casa, ref: date) -> dict[str, list]:
-    """Cada tarea en UNA sección. El orden de los `if` es la precedencia."""
+def repartir(cosas, ref: date) -> dict[str, list]:
+    """Cada cosa en UNA sección. El orden de los `if` es la precedencia.
+
+    Las compras sin fecha no entran en ninguna: viven en el botón de Compras.
+    """
     domingo = domingo_de_la_semana(ref)
     manana = ref + timedelta(days=1)
     secciones: dict[str, list] = {"vencidas": [], "hoy": [], "manana": [],
                                   "semana": [], "adelante": [], "algun_dia": []}
-    for r in casa:
+    for r in cosas:
         d = de_iso(r["due_date"])
         if d is None:
-            secciones["algun_dia"].append(r)
+            if not r["compra"]:
+                secciones["algun_dia"].append(r)
         elif d < ref:
             secciones["vencidas"].append(r)
         elif d == ref:
@@ -158,39 +163,8 @@ def _icono(clave: str) -> str:
     return "⚠️" if clave == "vencidas" else "📂"
 
 
-def _con_fecha(compras, ref: date) -> list:
-    """Las compras que tienen día, de la más cercana a la más lejana."""
-    fechadas = [(de_iso(r["due_date"]), r) for r in compras if r["due_date"]]
-    return [r for _, r in sorted(fechadas, key=lambda par: par[0])]
 
 
-def _urgentes(compras, ref: date) -> tuple[list, str]:
-    """Las compras con día cercano, y cómo nombrarlas.
-
-    Decir «para mañana» cuando era para hoy es mentira, así que se distingue.
-    """
-    para_hoy = [r for r in _con_fecha(compras, ref) if de_iso(r["due_date"]) <= ref]
-    if para_hoy:
-        return para_hoy, f"{len(para_hoy)} para hoy"
-    manana = [r for r in _con_fecha(compras, ref)
-              if de_iso(r["due_date"]) == ref + timedelta(days=1)]
-    return manana, f"{len(manana)} para mañana" if manana else ""
-
-
-def _para_cuando(compras, ref: date) -> str:
-    urgentes, como = _urgentes(compras, ref)
-    return f" · {como}" if urgentes else ""
-
-
-def _boton_compras(filas: list, atajos: list, compras, ref: date) -> None:
-    """Con compras para hoy o mañana, el botón se gana la fila entera."""
-    urgentes, como = _urgentes(compras, ref)
-    if urgentes:
-        filas.append([{"text": f"🛒 Compras · {len(compras)} ({como})",
-                       "callback_data": cb.armar("sup")}])
-    else:
-        atajos.append({"text": f"🛒 Compras · {len(compras)}",
-                       "callback_data": cb.armar("sup")})
 
 
 def _que_deshace(deshacer: dict) -> str:
@@ -221,6 +195,8 @@ def etiqueta(row, ref: date, largo: int = LARGO_BOTON,
     entra el número (para encontrarlo) y el título recortado.
     """
     cabeza = f"{numero}. " if numero else ""
+    if row["compra"]:
+        cabeza += "🛒 "
     return cabeza + views.recortar(views.titulo(row), largo)
 
 
@@ -262,10 +238,16 @@ RECIEN_PUBLICADO = 15    # segundos
 
 
 def publicar(chat_id: int, borrar_anterior: bool = True,
-             reusar_si_es_reciente: bool = True) -> int | None:
-    """Manda el tablero al final del chat, lo fija y guarda el message_id."""
+             reusar_si_es_reciente: bool = True, pedido: bool = False) -> int | None:
+    """Manda el tablero al final del chat, lo fija y guarda el message_id.
+
+    `pedido=True` cuando lo pidió una persona («tablero», /tablero): entonces va al
+    final del chat SIEMPRE. Sin eso, si el tablero se había editado hace un segundo
+    (por ejemplo por un ✅), se reusaba el de arriba y abajo no aparecía nada:
+    «escribo tablero y no pasa nada».
+    """
     anterior = db.tablero_actual(chat_id)
-    if (reusar_si_es_reciente and anterior and anterior.get("message_id")
+    if (reusar_si_es_reciente and not pedido and anterior and anterior.get("message_id")
             and _recien(anterior)):
         actualizar(chat_id, forzar=True)
         return anterior["message_id"]

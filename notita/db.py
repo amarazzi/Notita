@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import sqlite3
 from contextlib import contextmanager
 from datetime import date
@@ -23,7 +24,7 @@ CREATE TABLE IF NOT EXISTS tasks (
     id            INTEGER PRIMARY KEY AUTOINCREMENT,
     chat_id       INTEGER NOT NULL,
     texto         TEXT    NOT NULL,
-    tipo          TEXT    NOT NULL DEFAULT 'casa',      -- casa | compras
+    compra        INTEGER NOT NULL DEFAULT 0,           -- la etiqueta 🛒, nada más
     categoria     TEXT    NOT NULL DEFAULT 'otros',
     responsable   TEXT    NOT NULL DEFAULT 'ninguno',   -- axel | barbu | ambos | ninguno
     due_date      TEXT,                                 -- ISO o NULL ("algún día")
@@ -40,7 +41,7 @@ CREATE TABLE IF NOT EXISTS tasks (
     completed_at  TEXT,
     mensaje_origen_id INTEGER                            -- de qué mensaje salió (deshacer)
 );
-CREATE INDEX IF NOT EXISTS idx_tasks_estado ON tasks (estado, tipo, due_date);
+CREATE INDEX IF NOT EXISTS idx_tasks_estado ON tasks (estado, due_date);
 
 -- Mensajes que no se pudieron mandar (el proxy de PythonAnywhere falla cada tanto).
 -- Se reintentan en la próxima oportunidad, así una confirmación no se pierde nunca.
@@ -140,15 +141,16 @@ COLUMNAS_AGREGADAS = {
     "tasks": {
         "due_hora": "TEXT",
         "mensaje_origen_id": "INTEGER",
+        "compra": "INTEGER NOT NULL DEFAULT 0",
     },
 }
 
-# Columnas de v1 que ya no se usan: eran del auto-posponer y del recordatorio por
-# tarea, que en v2 no existen. Se borran para que no quede lógica muerta rondando.
-COLUMNAS_MUERTAS = {"tasks": ("recordada_veces", "last_reminded_on")}
+# Columnas que ya no se usan. `tipo` era casa/compras/recado: ahora hay una sola
+# clase de cosa y la etiqueta 🛒 es un booleano.
+COLUMNAS_MUERTAS = {"tasks": ("recordada_veces", "last_reminded_on", "tipo")}
 
 
-VERSION_ESQUEMA = 2
+VERSION_ESQUEMA = 3      # 3: una sola clase de cosa, con la etiqueta 🛒
 
 
 def init_db() -> None:
@@ -165,6 +167,7 @@ def init_db() -> None:
         # base que ya había migrado salía por el `return` de arriba y no lo recibía
         # nunca: en producción quedó con la tabla vieja y todos los botones muertos.
         _rehacer_updates_vistos(c)
+        _tipo_a_compra(c)          # antes de que la migración borre `tipo`
         _migrar_a_v2(c)
 
 
@@ -203,9 +206,12 @@ def _migrar_a_v2(c) -> None:
     if ya and ya["valor"] == str(VERSION_ESQUEMA):
         return
 
-    recados = c.execute(
-        "SELECT COUNT(*) n FROM tasks WHERE tipo = 'recado' AND estado = 'pendiente'"
-    ).fetchone()["n"]
+    columnas = {f["name"] for f in c.execute("PRAGMA table_info(tasks)")}
+    recados = 0
+    if "tipo" in columnas:
+        recados = c.execute(
+            "SELECT COUNT(*) n FROM tasks WHERE tipo = 'recado' AND estado = 'pendiente'"
+        ).fetchone()["n"]
     if recados:
         c.execute("UPDATE tasks SET estado = 'borrada' "
                   "WHERE tipo = 'recado' AND estado = 'pendiente'")
@@ -226,6 +232,26 @@ def _migrar_a_v2(c) -> None:
 
     c.execute("INSERT OR REPLACE INTO ajustes (clave, valor) VALUES (?,?)",
               ("esquema", str(VERSION_ESQUEMA)))
+
+
+def _tipo_a_compra(c) -> None:
+    """Lo que estaba en la lista del súper pasa a tener la etiqueta 🛒.
+
+    El texto no se toca: los ítems viejos ya dicen «Leche», «Yerba». Corre una sola
+    vez, porque después alguien puede sacarle la etiqueta a mano y no queremos
+    volver a pisarla.
+    """
+    columnas = {f["name"] for f in c.execute("PRAGMA table_info(tasks)")}
+    if "tipo" not in columnas or "compra" not in columnas:
+        return
+    ya = c.execute("SELECT valor FROM ajustes WHERE clave = 'compras_migradas'").fetchone()
+    if ya:
+        return
+    cur = c.execute("UPDATE tasks SET compra = 1 WHERE tipo = 'compras'")
+    c.execute("INSERT OR REPLACE INTO ajustes (clave, valor) VALUES (?,?)",
+              ("compras_migradas", str(cur.rowcount or 0)))
+    if cur.rowcount:
+        log.info("Etiqueté %d cosa(s) como compra", cur.rowcount)
 
 
 def _rehacer_updates_vistos(c) -> None:
@@ -266,7 +292,7 @@ def ajuste(clave: str, valor: str | None = None) -> str | None:
 def crear_tarea(
     chat_id: int,
     texto: str,
-    tipo: str = "casa",
+    compra: bool = False,
     categoria: str = "otros",
     responsable: str = "ninguno",
     due: date | None = None,
@@ -277,13 +303,14 @@ def crear_tarea(
 ) -> int:
     with conn() as c:
         cur = c.execute(
-            """INSERT INTO tasks (chat_id, texto, tipo, categoria, responsable, due_date,
+            """INSERT INTO tasks (chat_id, texto, compra, categoria, responsable, due_date,
                                   due_hora, mensaje_origen_id,
                                   recur_kind, recur_interval, recur_weekday, recur_monthday,
                                   created_by, created_at)
                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
             (
-                chat_id, " ".join(texto.split()), tipo, categoria, responsable, iso(due),
+                chat_id, " ".join(texto.split()), 1 if compra else 0, categoria,
+                responsable, iso(due),
                 hora, mensaje_origen_id,
                 recurrencia.kind if recurrencia else None,
                 recurrencia.interval if recurrencia else 1,
@@ -344,7 +371,7 @@ def marcar_hecha(task_id: int, por: str) -> sqlite3.Row | None:
     nuevo_id = crear_tarea(
         chat_id=row["chat_id"],
         texto=row["texto"],
-        tipo=row["tipo"],
+        compra=bool(row["compra"]),
         categoria=row["categoria"],
         responsable=row["responsable"],
         due=siguiente,
@@ -365,12 +392,13 @@ def posponer(task_id: int, nueva: date) -> int:
     return veces
 
 
-def pendientes(chat_id: int, tipo: str | None = None, categoria: str | None = None):
+def pendientes(chat_id: int, compra: bool | None = None,
+               categoria: str | None = None):
     q = "SELECT * FROM tasks WHERE chat_id = ? AND estado = 'pendiente'"
     args: list = [chat_id]
-    if tipo:
-        q += " AND tipo = ?"
-        args.append(tipo)
+    if compra is not None:
+        q += " AND compra = ?"
+        args.append(1 if compra else 0)
     if categoria:
         q += " AND categoria = ?"
         args.append(categoria)
@@ -379,85 +407,9 @@ def pendientes(chat_id: int, tipo: str | None = None, categoria: str | None = No
         return c.execute(q, args).fetchall()
 
 
-def vencen_hasta(chat_id: int, limite: date):
-    with conn() as c:
-        return c.execute(
-            """SELECT * FROM tasks
-               WHERE chat_id = ? AND estado = 'pendiente' AND tipo = 'casa'
-                 AND due_date IS NOT NULL AND due_date <= ?
-               ORDER BY due_date, COALESCE(due_hora, '99:99'), id""",
-            (chat_id, iso(limite)),
-        ).fetchall()
 
 
-def toca_recordar(chat_id: int, momento, hora_generica: str):
-    """Las tareas que toca recordar en este momento.
 
-    Las que tienen hora propia esperan esa hora; las que no, salen en la pasada
-    principal del día (la de `hora_generica`). Así, si la rutina corre una sola vez
-    por día, todo sigue funcionando como antes; y si corre cada rato, las de las
-    18:00 avisan a las 18:00.
-    """
-    hoy_iso = momento.date().isoformat()
-    ahora_hm = momento.strftime("%H:%M")
-    with conn() as c:
-        return c.execute(
-            """SELECT * FROM tasks
-               WHERE chat_id = ? AND estado = 'pendiente' AND tipo = 'casa'
-                 AND due_date IS NOT NULL AND due_date <= ?
-                 AND (
-                     due_date < ?                              -- vencida: siempre
-                     OR (due_hora IS NOT NULL AND due_hora <= ?)   -- ya es su hora
-                     OR ? >= ?                                     -- la pasada principal
-                 )
-               ORDER BY due_date, COALESCE(due_hora, '99:99'), id""",
-            (chat_id, hoy_iso, hoy_iso, ahora_hm, ahora_hm, hora_generica),
-        ).fetchall()
-
-
-def recados_a_entregar(chat_id: int, momento, hora_generica: str):
-    """Recados cuya fecha y hora ya llegaron.
-
-    Los que tienen hora («en 10 minutos», «a las 18») esperan su hora. Los que no,
-    salen en la pasada principal, que es lo que promete la confirmación
-    («mañana a las 20:00»). Los atrasados salen en cuanto se pueda.
-    """
-    hoy_iso = momento.date().isoformat()
-    ahora_hm = momento.strftime("%H:%M")
-    with conn() as c:
-        return c.execute(
-            """SELECT * FROM tasks
-               WHERE chat_id = ? AND estado = 'pendiente' AND tipo = 'recado'
-                 AND (due_date IS NULL OR due_date < ?
-                      OR (due_date = ? AND (
-                            (due_hora IS NOT NULL AND due_hora <= ?)
-                            OR (due_hora IS NULL AND ? >= ?))))
-               ORDER BY due_date, COALESCE(due_hora, '00:00'), id""",
-            (chat_id, hoy_iso, hoy_iso, ahora_hm, ahora_hm, hora_generica),
-        ).fetchall()
-
-
-def vencen_entre(chat_id: int, desde: date, hasta: date):
-    with conn() as c:
-        return c.execute(
-            """SELECT * FROM tasks
-               WHERE chat_id = ? AND estado = 'pendiente' AND tipo = 'casa'
-                 AND due_date BETWEEN ? AND ?
-               ORDER BY due_date, id""",
-            (chat_id, iso(desde), iso(hasta)),
-        ).fetchall()
-
-
-def recados_hasta(chat_id: int, limite: date):
-    """Recados que ya toca entregar (la fecha de entrega llegó o pasó)."""
-    with conn() as c:
-        return c.execute(
-            """SELECT * FROM tasks
-               WHERE chat_id = ? AND estado = 'pendiente' AND tipo = 'recado'
-                 AND (due_date IS NULL OR due_date <= ?)
-               ORDER BY due_date, id""",
-            (chat_id, iso(limite)),
-        ).fetchall()
 
 
 def puntaje(referencia: str, texto: str) -> float:
@@ -488,10 +440,8 @@ def _contiene_palabra(aguja: str, pajar: str) -> bool:
 def buscar(chat_id: int, referencia: str, minimo: float = 0.5) -> list[tuple[float, sqlite3.Row]]:
     """Tareas pendientes que se parezcan a `referencia`, de la más parecida a la menos.
 
-    Los recados quedan afuera: no son cosas que se completen o se borren a mano.
     """
-    candidatas = [(puntaje(referencia, r["texto"]), r)
-                  for r in pendientes(chat_id) if r["tipo"] != "recado"]
+    candidatas = [(puntaje(referencia, r["texto"]), r) for r in pendientes(chat_id)]
     return sorted([c for c in candidatas if c[0] >= minimo], key=lambda c: -c[0])
 
 
@@ -825,30 +775,44 @@ def pausada_hasta(chat_id: int) -> date | None:
     return hasta
 
 
-# Al comparar dos títulos, los artículos no aportan: «comprar la cómoda para la
-# habitación» y «comprar cómoda para la habitación» son lo mismo.
-ARTICULOS = {"el", "la", "los", "las", "un", "una", "unos", "unas", "lo", "al", "del"}
+# Para COMPARAR dos cosas (nunca para guardarlas) se sacan los artículos y los
+# arranques de relleno: «comprar la cómoda para la habitación» y «comprar cómoda para
+# la habitación» son lo mismo, y «falta leche» es lo mismo que «comprar leche».
+ARTICULOS = {"el", "la", "los", "las", "un", "una", "unos", "unas", "lo", "al", "del",
+             "de", "para"}
+# Se aceptan las conjugaciones: «comprar», «compramos», «compré», «compra».
+ARRANQUES = re.compile(
+    r"^(?:hay que|tenemos que|tengo que|tenes que|hace falta|no te olvides de|"
+    r"acordate de|compr\w*|trae\w*|consegu\w*|busca\w*|falta\w*|pedi\w*|"
+    r"encarga\w*|repone\w*|se acabo\w*|se termino\w*)\s+")
 
 
 def clave_duplicado(texto: str) -> str:
+    """La forma canónica para comparar. Lo que se guarda es el texto original."""
     from .dates import normalizar
 
-    return " ".join(p for p in normalizar(texto).split() if p not in ARTICULOS)
+    plano = normalizar(texto)
+    while True:
+        recortado = ARRANQUES.sub("", plano)
+        if recortado == plano:
+            break
+        plano = recortado
+    return " ".join(p for p in plano.split() if p not in ARTICULOS)
 
 
-def pendiente_igual(chat_id: int, texto: str, tipo: str):
-    """Un pendiente con el MISMO texto. Para no anotar dos veces.
+def pendiente_igual(chat_id: int, texto: str):
+    """Un pendiente que es LO MISMO. Para no anotar dos veces.
 
     A propósito exacto y no difuso: en v1 el fuzzy tachaba pantuflas cuando comprabas
-    pan. Lo único que se ignora son los artículos.
+    pan. Lo que se ignora son los artículos y los arranques de relleno.
     """
     objetivo = clave_duplicado(texto)
     if not objetivo:
         return None
     with conn() as c:
         filas = c.execute(
-            "SELECT * FROM tasks WHERE chat_id = ? AND tipo = ? AND estado = 'pendiente'",
-            (chat_id, tipo)).fetchall()
+            "SELECT * FROM tasks WHERE chat_id = ? AND estado = 'pendiente'",
+            (chat_id,)).fetchall()
     for fila in filas:
         if clave_duplicado(fila["texto"]) == objetivo:
             return fila

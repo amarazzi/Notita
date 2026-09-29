@@ -91,7 +91,8 @@ def recortar(texto: str, largo: int) -> str:
 
 
 def emoji(row: sqlite3.Row) -> str:
-    if row["tipo"] == "compras":
+    """🛒 si tiene la etiqueta; si no, el de la categoría."""
+    if row["compra"]:
         return "🛒"
     return config.CATEGORIA_EMOJI.get(row["categoria"], "📌")
 
@@ -112,24 +113,14 @@ def sufijo_responsable(row: sqlite3.Row, con_mencion: bool = False) -> str:
     return mencion(r) if con_mencion else escapar(config.NOMBRES.get(r, r))
 
 
-def _donde_y_cuando(row: sqlite3.Row, ref: date) -> str:
-    """El tipo y la fecha son independientes: algo de compras puede tener día.
-
-    «falta leche» → «a compras». «para el asado del sábado falta carbón» →
-    «a compras · para el sáb 3».
-    """
-    if row["tipo"] != "compras":
-        return cuando(de_iso(row["due_date"]), row["due_hora"], ref)
-    d = de_iso(row["due_date"])
-    return "a compras" if d is None else f"a compras · para {cuando(d, None, ref)}"
-
-
 def linea(row: sqlite3.Row, ref: date | None = None, con_fecha: bool = True) -> str:
     """Una línea de ítem: emoji, título, y los detalles detrás de «·»."""
     ref = ref or hoy()
     partes = [f"{emoji(row)} {titulo_html(row)}"]
-    if con_fecha:
-        partes.append(f"<i>{_donde_y_cuando(row, ref)}</i>")
+    d = de_iso(row["due_date"])
+    if con_fecha and not (row["compra"] and d is None):
+        # Una compra sin fecha no dice «algún día»: no le falta nada.
+        partes.append(f"<i>{cuando(d, row['due_hora'], ref)}</i>")
     elif row["due_hora"]:
         partes.append(f"<i>🕕 {row['due_hora']}</i>")
     resp = sufijo_responsable(row)
@@ -145,7 +136,7 @@ def linea(row: sqlite3.Row, ref: date | None = None, con_fecha: bool = True) -> 
 def detalle(row: sqlite3.Row, ref: date | None = None) -> str:
     """El encabezado del menú «⋯»: el título entero y sus datos."""
     ref = ref or hoy()
-    datos = [_donde_y_cuando(row, ref)]
+    datos = [cuando(de_iso(row["due_date"]), row["due_hora"], ref)]
     resp = sufijo_responsable(row)
     datos.append(resp if resp else "sin responsable")
     rec = texto_recurrencia(recurrencia_de(row))
