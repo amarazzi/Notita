@@ -61,10 +61,14 @@ def ofrecer(chat_id: int, accion: str, candidatos: list, extra: dict | None = No
         for row in candidatos:
             filas.append([{"text": f"{datos['icono']} {views.recortar(views.titulo(row), 24)}",
                            "callback_data": cb.armar("p", propuesta_id, row["id"])}])
-        prefijo = "Sí, " if accion == "mover" else ""
+        # OJO: `prefijo` es el parámetro (el renglón del audio). Esta variable se
+        # llamaba igual y lo pisaba: el «Sí, » del botón terminaba arriba del
+        # mensaje, como un renglón suelto.
+        afirma = "Sí, " if accion == "mover" else ""
+        etiqueta = (f"{datos['icono']} {afirma}{_todas(len(candidatos)).lower()}"
+                    if afirma else f"{datos['icono']} {_todas(len(candidatos))}")
         filas.append([
-            {"text": f"{datos['icono']} {prefijo}" + _todas(len(candidatos)).lower()
-                     if prefijo else f"{datos['icono']} " + _todas(len(candidatos)),
+            {"text": etiqueta,
              "callback_data": cb.armar("p", propuesta_id, "todas")},
             {"text": "No", "callback_data": cb.armar("p", propuesta_id, "no")},
         ])

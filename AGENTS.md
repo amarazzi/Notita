@@ -58,7 +58,7 @@ notita/
   audio.py            notas de voz: tope, aviso y transcripción
   handlers.py         qué hacer con cada mensaje y cada toque
   tablero.py          el mensaje fijado que se edita en el lugar
-  menus.py            menús temporales (⋯, secciones, súper)
+  menus.py            menús temporales (⋯, secciones, compras)
   propuestas.py       el texto propone, el botón ejecuta
   parte.py            el parte diario
   calendario.py       el botón «Agregar al calendario»
@@ -110,7 +110,7 @@ Todas pasaron de verdad. Están acá para no repetirlas:
 | Tocar el WSGI en PythonAnywhere hace un **reload parcial** | El código nuevo puede no cargarse. Por eso `GET /` devuelve `version` y `en_disco`: si no coinciden, falta el botón **Reload** |
 | El proxy de PythonAnywhere falla de a ratos | Por eso existe la cola de salida (`salientes`): un mensaje que no sale queda guardado y se reintenta |
 | Postergar la edición del tablero | Un debounce de 3 segundos hacía que el ✅ no se reflejara: se tocaba el botón y «no pasaba nada» |
-| Confirmar con lo que devolvió el LLM | Anunció «cómoda al súper» sin haber guardado nada. De ahí el principio 4 |
+| Confirmar con lo que devolvió el LLM | Anunció «cómoda a compras» sin haber guardado nada. De ahí el principio 4 |
 | Un `message_id` es de **un** chat | Al mudarse de grupo no se migran: se descartan y el tablero se publica de cero |
 
 ## Deploy

@@ -27,7 +27,7 @@ de las cosas que existen. Y la precisión horaria no es confiable con un cron gr
 
 El principio 3 mata una familia entera de bugs de v1 (el `pending` que se comía el
 mensaje siguiente). El principio 4 mata otra (confirmar lo que el LLM devolvió, no lo
-que se guardó: la cómoda que se anunció "al súper" y no estaba en ningún lado).
+que se guardó: la cómoda que se anunció "a compras" y no estaba en ningún lado).
 
 ## Máquina de estados por tipo de mensaje
 
@@ -96,7 +96,7 @@ perdería.
 ```
 callback
  ├─ ¿ya lo procesamos? (callback_query.id en updates_vistos) → answerCallbackQuery y listo
- ├─ acción sobre un ítem (✅, ⋯, fecha, quién, renombrar, borrar, súper)
+ ├─ acción sobre un ítem (✅, ⋯, fecha, quién, renombrar, borrar, compras)
  │    ├─ el ítem ya no existe o ya está resuelto
  │    │    → answerCallbackQuery("Eso ya estaba resuelto ✨") + refrescar la vista
  │    └─ ejecutar en una transacción → answerCallbackQuery corto → actualizar tablero
@@ -104,7 +104,7 @@ callback
  │    → validar ítem por ítem; ejecutar los que sigan pendientes
  │    → editar el mensaje de la propuesta con el resultado y sacarle los botones
  ├─ deshacer (und:<id>) → si venció: answerCallbackQuery("Ya no se puede deshacer")
- └─ sección / súper / cerrar → mensaje temporal
+ └─ sección / compras / cerrar → mensaje temporal
 ```
 
 ### Cron (cada 15 minutos)
@@ -133,12 +133,12 @@ es de la versión anterior").
 | Pedir fecha escrita | `2\|df\|<id>` | `2\|df\|417` | 9 |
 | Responsable | `2\|q\|<id>\|<slug>` | `2\|q\|417\|barbu` | 15 |
 | Renombrar | `2\|r\|<id>` | `2\|r\|417` | 8 |
-| Mover al súper / a tareas | `2\|sw\|<id>` | `2\|sw\|417` | 9 |
+| Mover a compras / a tareas | `2\|sw\|<id>` | `2\|sw\|417` | 9 |
 | Borrar | `2\|x\|<id>` | `2\|x\|417` | 8 |
 | Borrar recurrente | `2\|x\|<id>\|<una\|todas>` | `2\|x\|417\|todas` | 14 |
 | Sección | `2\|sec\|<clave>` | `2\|sec\|semana` | 12 |
-| Súper | `2\|sup` | `2\|sup` | 5 |
-| Tachar todo el súper | `2\|supx` | `2\|supx` | 6 |
+| Compras | `2\|sup` | `2\|sup` | 5 |
+| Tachar todo compras | `2\|supx` | `2\|supx` | 6 |
 | Propuesta | `2\|p\|<id>\|<opción>` | `2\|p\|93\|todas` | 14 |
 | Deshacer | `2\|u\|<id>` | `2\|u\|93` | 7 |
 | Madrugada | `2\|mad\|<id>` | `2\|mad\|93` | 9 |
@@ -219,7 +219,7 @@ Es el único envío programado y el único con notificación.
 8. **El menú "⋯" y las secciones son mensajes nuevos, no ediciones del tablero.** El
    brief lo pide ("el tablero nunca navega") y además evita que lo que toca uno le
    cambie la pantalla al otro.
-9. **El mensaje del súper renueva su TTL con cada toque** (se usa mientras se compra),
+9. **El mensaje de compras renueva su TTL con cada toque** (se usa mientras se compra),
    los demás temporales no.
 10. **Sin Gemini, las propuestas también funcionan**: la heurística local reconoce
     "ya compré X" y "borrá Y" y arma la propuesta. No ejecuta nada, así que un error
@@ -230,12 +230,29 @@ Es el único envío programado y el único con notificación.
     pide) y se avisa en el mensaje de bienvenida cuántos eran.
 13. **El responsable se descarta si el mensaje no lo dice.** El prompt le cuenta al
     modelo quién escribió, y a veces deduce que esa persona lo hace: «comprar leche y
-    yerba» quedó como «Leche · al súper · Axel». Se exige evidencia en el texto (el
+    yerba» quedó como «Leche · a compras · Axel». Se exige evidencia en el texto (el
     nombre, «los dos», o un «lo hago yo» de quien escribe). Mismo criterio que el
     corolario de que el LLM no decide sobre datos que existen.
 14. **Los audios vienen prendidos** cuando hay key de Gemini, y se apagan con
     `NOTITA_AUDIOS=0`. La contrapartida está escrita en la sección de privacidad del
     README, que cubre texto y audio.
+
+## El tipo y la fecha son independientes
+
+Al principio «compras» significaba «producto de almacén **sin fecha**», y la fecha
+decidía el tipo. Con el uso real se vio que son dos preguntas distintas:
+
+- **El tipo lo define qué es la cosa.** «compras» se resuelve metiéndolo al carrito
+  en una salida normal (comida, limpieza, ferretería o vivero chico). «tarea» es lo
+  que hay que decidir, comparar, coordinar o ir a buscar a un lugar puntual: muebles,
+  electrodomésticos, regalos, trámites, aunque el mensaje diga «comprar».
+- **La fecha es opcional para los dos.** «para el asado del sábado falta carbón» es
+  una compra con día.
+
+Una compra con fecha **nunca** aparece en las secciones de días del tablero: ahí van
+las tareas. Se ve en la lista de compras (ordenada por día), en el contador del botón
+(«🛒 Compras · 5 (1 para mañana)») y en el parte de la noche anterior («🛒 Para
+mañana: carbón»). Y mover algo entre compras y tareas **conserva la fecha**.
 
 ## Lo que el uso real nos hizo cambiar
 

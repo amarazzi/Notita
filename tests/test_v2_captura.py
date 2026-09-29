@@ -192,8 +192,8 @@ def test_el_boton_era_el_lunes_mueve_todo_al_dia_siguiente(enviados, monkeypatch
 # --------------------------------------------------------------------------
 
 @pytest.mark.parametrize("titulo,tipo_llm,esperado", [
-    ("Leche", "super", "compras"),
-    ("Detergente para los platos", "super", "compras"),
+    ("Leche", "compras", "compras"),
+    ("Detergente para los platos", "compras", "compras"),
     ("Comprar la cómoda", "tarea", "casa"),
     ("Comprar tornillos", "tarea", "casa"),
 ])
@@ -204,19 +204,24 @@ def test_donde_cae_cada_cosa(enviados, monkeypatch, titulo, tipo_llm, esperado):
     assert len(db.pendientes(CHAT, tipo=esperado)) == 1
 
 
-def test_el_super_guarda_solo_el_producto(enviados, monkeypatch):
+def test_compras_guarda_solo_el_producto(enviados, monkeypatch):
     responde(monkeypatch, items=[item("comprar detergente para los platos",
-                                      tipo="super", fecha_kind="algun_dia")])
+                                      tipo="compras", fecha_kind="algun_dia")])
     handlers.handle_update(mensaje("hay que comprar detergente para los platos"))
 
     assert db.pendientes(CHAT, tipo="compras")[0]["texto"] == "detergente para los platos"
     assert "Detergente para los platos" in textos(enviados)[0]
 
 
-def test_lo_del_super_no_tiene_fecha(enviados, monkeypatch):
-    responde(monkeypatch, items=[item("Leche", tipo="super", fecha_kind="manana")])
-    handlers.handle_update(mensaje("falta leche mañana"))
-    assert db.pendientes(CHAT, tipo="compras")[0]["due_date"] is None
+def test_una_compra_puede_tener_fecha(enviados, monkeypatch):
+    """El tipo y la fecha son independientes: «mañana compramos leche»."""
+    responde(monkeypatch, items=[item("Leche", tipo="compras", fecha_kind="manana")])
+
+    handlers.handle_update(mensaje("mañana compramos leche"))
+
+    fila = db.pendientes(CHAT, tipo="compras")[0]
+    assert fila["due_date"] == (hoy() + timedelta(days=1)).isoformat()
+    assert fila["due_hora"] is None, "una lista de compras no tiene horarios"
 
 
 # --------------------------------------------------------------------------
@@ -224,7 +229,7 @@ def test_lo_del_super_no_tiene_fecha(enviados, monkeypatch):
 # --------------------------------------------------------------------------
 
 def test_no_anota_dos_veces_lo_mismo(enviados, monkeypatch):
-    responde(monkeypatch, items=[item("Leche", tipo="super", fecha_kind="algun_dia")])
+    responde(monkeypatch, items=[item("Leche", tipo="compras", fecha_kind="algun_dia")])
     handlers.handle_update(mensaje("falta leche", update_id=1))
     handlers.handle_update(mensaje("falta leche", update_id=2))
 
@@ -393,7 +398,7 @@ def test_el_responsable_necesita_estar_en_el_mensaje(texto, dijo_el_modelo, qued
 
 
 def test_un_responsable_inventado_no_llega_a_la_base(enviados, monkeypatch):
-    responde(monkeypatch, items=[item("Leche", tipo="super", responsable="axel",
+    responde(monkeypatch, items=[item("Leche", tipo="compras", responsable="axel",
                                       fecha_kind="algun_dia")])
 
     handlers.handle_update(mensaje("comprar leche"))

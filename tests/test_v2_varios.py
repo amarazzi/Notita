@@ -104,13 +104,14 @@ def test_cambiar_el_responsable(enviados):
     assert db.obtener(tid)["responsable"] == "barbu"
 
 
-def test_mover_al_super_y_volver(enviados):
+def test_mover_a_compras_y_volver_conserva_la_fecha(enviados):
     tid = db.crear_tarea(CHAT, "comprar pan", due=hoy(), hora="18:00")
 
     handlers.handle_update(click(cb.armar("sw", tid), cq_id="a"))
     fila = db.obtener(tid)
     assert fila["tipo"] == "compras"
-    assert fila["due_date"] is None and fila["due_hora"] is None
+    assert fila["due_date"] == hoy().isoformat(), "mover no es olvidarse del día"
+    assert fila["due_hora"] is None, "una lista de compras no tiene horarios"
 
     handlers.handle_update(click(cb.armar("sw", tid), cq_id="b"))
     assert db.obtener(tid)["tipo"] == "casa"
@@ -594,7 +595,7 @@ def test_el_arreglo_corre_aunque_la_base_ya_hubiera_migrado(tmp_path, monkeypatc
 # Los comandos y la ayuda
 # --------------------------------------------------------------------------
 
-COMANDOS_REALES = ("tablero", "super", "parte", "ayuda")
+COMANDOS_REALES = ("tablero", "compras", "parte", "ayuda")
 
 
 @pytest.mark.parametrize("comando", COMANDOS_REALES)

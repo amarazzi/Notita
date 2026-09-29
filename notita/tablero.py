@@ -75,14 +75,16 @@ def render(chat_id: int, ref: date | None = None) -> tuple[str, list]:
             atajos.append({"text": f"{_icono(clave)} {_nombre_corto(clave)} · {len(rows)}",
                            "callback_data": cb.armar("sec", clave)})
 
+    compras_aparte: list = []
     if compras:
-        lineas.append(f"\n🛒 <b>SÚPER</b> · {len(compras)} ›")
-        atajos.append({"text": f"🛒 Súper · {len(compras)}", "callback_data": cb.armar("sup")})
+        lineas.append(f"\n🛒 <b>COMPRAS</b> · {len(compras)}{_para_cuando(compras, ref)} ›")
+        _boton_compras(compras_aparte, atajos, compras, ref)
 
     # De a dos por fila: son etiquetas cortas y apiladas quedaban como una pila de
     # losas grises.
     for i in range(0, len(atajos), 2):
         filas.append(atajos[i:i + 2])
+    filas.extend(compras_aparte)
 
     if not casa and not compras:
         lineas.append("\nNo hay nada pendiente. Qué lujo ✨")
@@ -154,6 +156,41 @@ def _nombre_corto(clave: str) -> str:
 
 def _icono(clave: str) -> str:
     return "⚠️" if clave == "vencidas" else "📂"
+
+
+def _con_fecha(compras, ref: date) -> list:
+    """Las compras que tienen día, de la más cercana a la más lejana."""
+    fechadas = [(de_iso(r["due_date"]), r) for r in compras if r["due_date"]]
+    return [r for _, r in sorted(fechadas, key=lambda par: par[0])]
+
+
+def _urgentes(compras, ref: date) -> tuple[list, str]:
+    """Las compras con día cercano, y cómo nombrarlas.
+
+    Decir «para mañana» cuando era para hoy es mentira, así que se distingue.
+    """
+    para_hoy = [r for r in _con_fecha(compras, ref) if de_iso(r["due_date"]) <= ref]
+    if para_hoy:
+        return para_hoy, f"{len(para_hoy)} para hoy"
+    manana = [r for r in _con_fecha(compras, ref)
+              if de_iso(r["due_date"]) == ref + timedelta(days=1)]
+    return manana, f"{len(manana)} para mañana" if manana else ""
+
+
+def _para_cuando(compras, ref: date) -> str:
+    urgentes, como = _urgentes(compras, ref)
+    return f" · {como}" if urgentes else ""
+
+
+def _boton_compras(filas: list, atajos: list, compras, ref: date) -> None:
+    """Con compras para hoy o mañana, el botón se gana la fila entera."""
+    urgentes, como = _urgentes(compras, ref)
+    if urgentes:
+        filas.append([{"text": f"🛒 Compras · {len(compras)} ({como})",
+                       "callback_data": cb.armar("sup")}])
+    else:
+        atajos.append({"text": f"🛒 Compras · {len(compras)}",
+                       "callback_data": cb.armar("sup")})
 
 
 def _que_deshace(deshacer: dict) -> str:

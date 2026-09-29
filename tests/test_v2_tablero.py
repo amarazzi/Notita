@@ -550,9 +550,9 @@ def test_los_atajos_van_de_a_dos_por_fila(enviados):
 
     _, filas = tablero.render(CHAT)
 
-    atajos = [f for f in filas if any("Súper" in b["text"] for b in f)][0]
+    atajos = [f for f in filas if any("Compras" in b["text"] for b in f)][0]
     assert len(atajos) == 2
-    assert [b["text"] for b in atajos] == ["📂 Algún día · 1", "🛒 Súper · 1"]
+    assert [b["text"] for b in atajos] == ["📂 Algún día · 1", "🛒 Compras · 1"]
 
 
 def test_el_tablero_vacio_con_algo_para_deshacer(enviados):

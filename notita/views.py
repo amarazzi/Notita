@@ -112,12 +112,24 @@ def sufijo_responsable(row: sqlite3.Row, con_mencion: bool = False) -> str:
     return mencion(r) if con_mencion else escapar(config.NOMBRES.get(r, r))
 
 
+def _donde_y_cuando(row: sqlite3.Row, ref: date) -> str:
+    """El tipo y la fecha son independientes: algo de compras puede tener día.
+
+    «falta leche» → «a compras». «para el asado del sábado falta carbón» →
+    «a compras · para el sáb 3».
+    """
+    if row["tipo"] != "compras":
+        return cuando(de_iso(row["due_date"]), row["due_hora"], ref)
+    d = de_iso(row["due_date"])
+    return "a compras" if d is None else f"a compras · para {cuando(d, None, ref)}"
+
+
 def linea(row: sqlite3.Row, ref: date | None = None, con_fecha: bool = True) -> str:
     """Una línea de ítem: emoji, título, y los detalles detrás de «·»."""
     ref = ref or hoy()
     partes = [f"{emoji(row)} {titulo_html(row)}"]
     if con_fecha:
-        partes.append(f"<i>{'al súper' if row['tipo'] == 'compras' else cuando(de_iso(row['due_date']), row['due_hora'], ref)}</i>")
+        partes.append(f"<i>{_donde_y_cuando(row, ref)}</i>")
     elif row["due_hora"]:
         partes.append(f"<i>🕕 {row['due_hora']}</i>")
     resp = sufijo_responsable(row)
@@ -133,11 +145,7 @@ def linea(row: sqlite3.Row, ref: date | None = None, con_fecha: bool = True) -> 
 def detalle(row: sqlite3.Row, ref: date | None = None) -> str:
     """El encabezado del menú «⋯»: el título entero y sus datos."""
     ref = ref or hoy()
-    datos = []
-    if row["tipo"] == "compras":
-        datos.append("al súper")
-    else:
-        datos.append(cuando(de_iso(row["due_date"]), row["due_hora"], ref))
+    datos = [_donde_y_cuando(row, ref)]
     resp = sufijo_responsable(row)
     datos.append(resp if resp else "sin responsable")
     rec = texto_recurrencia(recurrencia_de(row))
@@ -148,7 +156,7 @@ def detalle(row: sqlite3.Row, ref: date | None = None) -> str:
 AYUDA = """Soy <b>Notita</b> 🧲 y así nos entendemos:
 
 <b>Para anotar, escribime normal</b>
-• «hay que limpiar la heladera y falta leche» → lo separo solo
+• «hay que limpiar la heladera y falta leche» → uno va a tareas y otro a compras
 • «llevar a Milo al veterinario el jueves a las 18» → con fecha, hora y responsable
 • «pagar el ABL todos los 10» → se repite sola 🔁
 • 🎤 <b>o mandame un audio</b> de hasta {segundos} segundos y lo transcribo
@@ -157,9 +165,9 @@ AYUDA = """Soy <b>Notita</b> 🧲 y así nos entendemos:
 El <b>tablero</b> está fijado arriba del grupo:
 • <b>✅</b> en cada tarea la da por hecha, de un toque.
 • <b>⋯ Cambiar algo</b> para el resto: el día, quién la hace, el nombre, mandarla
-  al súper, borrarla o pasarla al calendario.
+  a compras, borrarla o pasarla al calendario.
 • <b>↩️ Deshacer</b> aparece un rato después de tachar, por si no era esa.
-• Las secciones con <b>›</b> (Esta semana, Algún día, Súper) se abren aparte.
+• Las secciones con <b>›</b> (Esta semana, Algún día, Compras) se abren aparte.
 
 Si me pedís algo por texto («ya compré la leche», «pasá lo del horno al domingo»),
 te lo propongo con botones y vos confirmás. Nunca toco nada sin que alguien toque.
@@ -173,7 +181,7 @@ No aviso a horas exactas: para eso, el botón 📅 <b>Agregar al calendario</b> 
 aparece cuando algo tiene hora. Y para cambiarle el ritmo a una tarea que se repite,
 borrala y anotala de nuevo.
 
-Comandos: /tablero · /super · /parte · /ayuda"""
+Comandos: /tablero · /compras · /parte · /ayuda"""
 
 
 def ayuda() -> str:

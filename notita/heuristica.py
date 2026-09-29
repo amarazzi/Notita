@@ -316,9 +316,9 @@ DURABLES = (
 
 
 def _es_compra(plano: str, con_fecha: bool = False) -> bool:
-    if con_fecha:
-        # Algo con fecha es una tarea: al súper se va cuando se puede, sin agenda.
-        return False
+    # `con_fecha` ya no decide nada: una compra puede tener día («para el asado del
+    # sábado falta carbón»). Lo que define el tipo es QUÉ es la cosa.
+    del con_fecha
     if any(re.search(rf"\b{a}\b", plano) for a in ACCIONES):
         return False
     # Con plural: «focos», «tornillos», «macetas».
@@ -404,8 +404,8 @@ def _item(fragmento: str) -> dict | None:
 def _contagiar_compras(items: list[dict]) -> None:
     """«comprar yerba, pan y dulce de leche»: el verbo está sólo en el primer pedazo.
 
-    Si la lista arranca en el súper, los fragmentos que quedaron sin clasificar
-    (sin verbo propio ni fecha) también son del súper.
+    Si la lista arranca en compras, los fragmentos que quedaron sin clasificar
+    (sin verbo propio ni fecha) también son de compras.
     """
     if not items or items[0]["tipo"] != "compras":
         return
@@ -514,5 +514,5 @@ def _item_v2(item: dict) -> dict:
     """`texto` pasa a `titulo` y el tipo al vocabulario de v2."""
     nuevo = dict(item)
     nuevo["titulo"] = item.get("titulo") or item.get("texto") or ""
-    nuevo["tipo"] = "super" if item.get("tipo") == "compras" else "tarea"
+    nuevo["tipo"] = "compras" if item.get("tipo") == "compras" else "tarea"
     return nuevo

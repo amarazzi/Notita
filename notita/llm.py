@@ -52,8 +52,8 @@ CONJUNTOS = ("ninguno", "hoy", "manana", "vencidas", "semana", "algun_dia", "sup
 def _item_props() -> dict:
     """El enum de `responsable` depende de quién vive en la casa: se arma al vuelo."""
     return {
-        "titulo": {"type": "string", "description": "La cosa a hacer, en infinitivo, corta y clara, bien escrita (sin abreviaturas). Sin la fecha ni el nombre de quién la hace. Si es del súper, sólo el producto: 'comprar detergente para los platos' -> 'Detergente para los platos'."},
-        "tipo": {"type": "string", "enum": ["tarea", "super"], "description": "super SÓLO si es un producto de consumo habitual de supermercado o almacén y no tiene fecha. Un mueble, un electrodoméstico, algo de ferretería o de vivero es tarea. Ante la duda: tarea."},
+        "titulo": {"type": "string", "description": "La cosa a hacer, en infinitivo, corta y clara, bien escrita (sin abreviaturas). Sin la fecha ni el nombre de quién la hace. Si es de compras, SÓLO el producto, sin el verbo: 'comprar detergente para los platos' -> 'Detergente para los platos'; 'falta carbón para el sábado' -> 'Carbón'."},
+        "tipo": {"type": "string", "enum": ["tarea", "compras"], "description": "compras = se resuelve metiéndolo al carrito en una salida de compras normal (comida, limpieza, ferretería o vivero chico: pilas, cemento, tierra). tarea = hay que decidir, comparar, coordinar o ir a un lugar puntual (muebles, electrodomésticos, regalos, trámites), aunque el mensaje diga 'comprar'. El tipo NO depende de si tiene fecha: una compra puede tener día."},
         "categoria": {"type": "string", "enum": list(config.CATEGORIAS)},
         "responsable": {"type": "string", "enum": list(config.PERSONAS)},
         "fecha_kind": {"type": "string", "enum": list(KINDS)},
@@ -97,7 +97,7 @@ def schema_mensaje() -> dict:
                 "items": {"type": "string"},
             },
             "conjunto": {"type": "string", "enum": list(CONJUNTOS),
-                         "description": "Si en vez de nombrar cosas hablan de un grupo entero ('todo lo de mañana' -> manana, 'todas las tareas' -> todo, 'todo el súper' -> super). Si nombran cosas puntuales: 'ninguno'."},
+                         "description": "Si en vez de nombrar cosas hablan de un grupo entero ('todo lo de mañana' -> manana, 'todas las tareas' -> todo, 'toda la lista de compras' -> super). Si nombran cosas puntuales: 'ninguno'."},
             "destino_fecha_kind": {"type": "string", "enum": list(KINDS),
                                    "description": "Si accion=mover: a cuándo. Si no, 'desconocida'."},
             "destino_fecha_weekday": {"type": "integer", "description": "0=lunes ... 6=domingo. -1 si no aplica."},
@@ -157,7 +157,7 @@ Tu trabajo es clasificar el mensaje en UNA intención:
   ("decile a Barbu que ya salí"). `recado_mensaje` va en primera persona.
   OJO: si el recado es para más tarde o para otro día ("decile mañana que compre
   pan"), NO es un recado: es "crear" un item con esa fecha y ese responsable.
-- "ver": piden ver la lista o el súper.
+- "ver": piden ver la lista de tareas o la de compras.
 - "charla": saludos, gracias, preguntas, cualquier otra cosa. items=[].
 
 CUIDADO con el pasado: un infinitivo con fecha pasada es algo que quedó pendiente,
@@ -170,9 +170,16 @@ Reglas de los items:
   * pagos: SOLO si hay que pagar plata. tramites: gestiones, papeles, turnos.
   * arreglos: reparar o instalar. limpieza: limpiar u ordenar.
   * mascotas: los animales de la casa. otros: lo que no encaje.
-- tipo="super" SÓLO para productos de consumo habitual de supermercado o almacén sin
-  fecha ("falta leche", "se acabó el café"). Un mueble, un electrodoméstico, algo de
-  ferretería o de vivero es "tarea", aunque diga "comprar". Ante la duda: tarea.
+- tipo: lo define QUÉ ES la cosa, no si tiene fecha ni cómo lo dijeron.
+  * "compras": se resuelve metiéndolo al carrito en una salida de compras normal.
+    Comida, limpieza, cosas de ferretería o vivero chicas (pilas, cemento, tierra,
+    lamparitas). "falta leche", "se acabó el café", "para el asado falta carbón".
+  * "tarea": hay que decidir, comparar, coordinar o ir a un lugar puntual. Muebles,
+    electrodomésticos, regalos, trámites, cosas para encargar. "comprar la cómoda",
+    "comprar el regalo de mamá", "comprar los pasajes". Aunque diga "comprar".
+  * Ante la duda: tarea.
+  * UNA COMPRA PUEDE TENER FECHA: "mañana compramos leche" es compras con fecha de
+    mañana, no una tarea. La fecha y el tipo son independientes.
 - fecha_kind: elegí la INTENCIÓN, no calcules la fecha. Nunca devuelvas una fecha hecha.
   * "el lunes" -> dia_semana con fecha_weekday=0
   * "el lunes de la semana que viene" -> dia_semana_prox

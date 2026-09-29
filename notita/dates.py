@@ -579,10 +579,10 @@ _VERBOS_DE_COMPRA = re.compile(
     r"reponer|encargar|pedir)\s+", re.IGNORECASE)
 
 
-def limpiar_item_de_super(texto: str) -> str:
+def limpiar_item_de_compras(texto: str) -> str:
     """«comprar detergente para los platos» -> «detergente para los platos».
 
-    En la lista del súper el verbo no aporta y además queda inconsistente: «falta
+    En la lista de compras el verbo no aporta y además queda inconsistente: «falta
     leche» daba «Leche» y «comprar lavandina» daba «Comprar lavandina».
     """
     limpio = " ".join((texto or "").split())

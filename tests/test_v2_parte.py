@@ -115,11 +115,23 @@ def test_con_muchas_vencidas_se_agrupan(enviados):
     assert any("Pasar todas a mañana" in e for e in etiquetas)
 
 
-def test_el_super_se_cuenta(enviados):
+def test_las_compras_se_cuentan(enviados):
     db.crear_tarea(CHAT, "leche", tipo="compras", categoria="compras")
     db.crear_tarea(CHAT, "yerba", tipo="compras", categoria="compras")
     texto, _ = parte.render(CHAT, SABADO)
-    assert "En el súper hay <b>2</b> cosas" in texto
+    assert "En compras hay <b>2</b> cosas" in texto
+
+
+def test_el_parte_nombra_lo_que_hay_que_comprar_para_manana(enviados):
+    """Una compra con fecha se menciona por nombre, no como un número."""
+    db.crear_tarea(CHAT, "carbón", tipo="compras", categoria="compras",
+                   due=SABADO + timedelta(days=1))
+    db.crear_tarea(CHAT, "yerba", tipo="compras", categoria="compras")
+
+    texto, _ = parte.render(CHAT, SABADO)
+
+    assert "🛒 <b>Para mañana:</b> Carbón" in texto
+    assert "En compras hay <b>1</b> cosas más" in texto
 
 
 def test_sin_nada_manda_el_corto(enviados):

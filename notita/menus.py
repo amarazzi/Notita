@@ -53,7 +53,7 @@ def _filas_tarea(row) -> list:
          {"text": "📅 Otro día", "callback_data": cb.armar("d+", item_id)}],
         [{"text": "👤 Quién", "callback_data": cb.armar("q+", item_id)},
          {"text": "✏️ Renombrar", "callback_data": cb.armar("r", item_id)},
-         {"text": "🛒 Mover al súper", "callback_data": cb.armar("sw", item_id)}],
+         {"text": "🛒 Mover a compras", "callback_data": cb.armar("sw", item_id)}],
     ]
     ultima = [{"text": "🗑 Borrar", "callback_data": cb.armar("x", item_id)},
               {"text": "✖️ Cerrar", "callback_data": cb.armar("c")}]
@@ -179,14 +179,27 @@ def abrir_seccion(chat_id: int, clave: str, ref: date | None = None) -> None:
     _publicar_temporal(chat_id, "\n".join(lineas), filas, "seccion")
 
 
-def abrir_super(chat_id: int, message_id: int | None = None) -> None:
+def _cuando_comprarlo(row, ref: date) -> str:
+    from .dates import de_iso
+
+    d = de_iso(row["due_date"])
+    return f" · <i>para {views.cuando(d, None, ref)}</i>" if d else ""
+
+
+def abrir_compras(chat_id: int, message_id: int | None = None,
+                  ref: date | None = None) -> None:
+    ref = ref or hoy()
     rows = db.pendientes(chat_id, tipo="compras")
     if not rows:
-        texto = "La lista del súper está vacía 🛒"
+        texto = "La lista de compras está vacía 🛒"
         filas = [[{"text": "✖️ Cerrar", "callback_data": cb.armar("c")}]]
     else:
-        texto = (f"🛒 <b>Súper</b> · {len(rows)}\n"
-                 + "\n".join(f"• {views.titulo_html(r)}" for r in rows)
+        # Primero lo que tiene día, y se dice para cuándo: una compra con fecha es
+        # la que te hace volver al almacén si te la olvidás.
+        rows = sorted(rows, key=lambda r: (r["due_date"] or "9999", r["id"]))
+        texto = (f"🛒 <b>Compras</b> · {len(rows)}\n"
+                 + "\n".join(f"• {views.titulo_html(r)}{_cuando_comprarlo(r, ref)}"
+                              for r in rows)
                  + "\n\n<i>Tocá lo que ya compraste.</i>")
         filas = [[{"text": f"🛒 {views.recortar(views.titulo(r), 28)}",
                    "callback_data": cb.armar("ok", r["id"])}] for r in rows[:40]]
@@ -199,14 +212,14 @@ def abrir_super(chat_id: int, message_id: int | None = None) -> None:
         _publicar_temporal(chat_id, texto, filas, "super", TTL_SUPER)
 
 
-def confirmar_super_todo(chat_id: int, message_id: int) -> None:
+def confirmar_compras_todo(chat_id: int, message_id: int) -> None:
     rows = db.pendientes(chat_id, tipo="compras")
     if not rows:
-        abrir_super(chat_id, message_id)
+        abrir_compras(chat_id, message_id)
         return
     telegram.editar(
         chat_id, message_id,
-        f"¿Tacho {'la' if len(rows) == 1 else f'las {len(rows)}'} del súper?\n"
+        f"¿Tacho {'la' if len(rows) == 1 else f'las {len(rows)}'} de compras?\n"
         + "\n".join(f"· {views.titulo_html(r)}" for r in rows),
         [[{"text": "✅ Sí", "callback_data": cb.armar("supx", "si")},
           {"text": "No", "callback_data": cb.armar("sup")}]])

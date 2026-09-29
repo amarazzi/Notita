@@ -28,7 +28,8 @@ ninguna modificación se ejecuta sin que alguien toque un botón
 | Fechas relativas | «mañana», «el jueves», «el finde», «todos los 10», «en 3 días» |
 | Fecha y hora | «llevar a Milo al veterinario el jueves a las 18» → guarda la hora y te da un botón para pasarlo al calendario |
 | Responsable | «Barbu tiene que llamar al veterinario» → queda a nombre de Barbu |
-| Lista del súper | «falta leche» va al súper. Un mueble o algo de ferretería es tarea, aunque diga «comprar» |
+| Lista de compras | «falta leche» va a compras. Un mueble, un electrodoméstico o un regalo es tarea, aunque diga «comprar»: hay que decidir, comparar o ir a un lugar puntual |
+| Compras con fecha | «para el asado del sábado falta carbón» → queda en compras **y** con día. El tipo y la fecha son independientes |
 | Recurrentes | «cambiar las piedritas cada semana», «regar cada 3 días» 🔁 |
 | Recados | «decile a Barbu que ya salí» → se lo dice en el momento, mencionándola |
 | Notas de voz 🎤 | Le mandás un audio de hasta 15 segundos y lo transcribe. Siempre muestra lo que escuchó, así se ve si entendió mal ([privacidad](#privacidad)) |
@@ -53,12 +54,12 @@ HOY · lun 28 · 2
 3. 🔧 Comprar cómoda para la habitación
 
 ESTA SEMANA · 3 ›
-🛒 SÚPER · 4 ›
+🛒 COMPRAS · 4 ›
 
 [ ✅ 1. Agarrar sábanas y acolchado ]
 [ ✅ 2. Llevar a Milo al veterinario ]
 [ ✅ 3. Comprar cómoda para la habitación ]
-[ 📂 Esta semana · 3 ]  [ 🛒 Súper · 4 ]
+[ 📂 Esta semana · 3 ]  [ 🛒 Compras · 4 ]
 [ ⋯ Cambiar algo ]
 ```
 
@@ -67,7 +68,7 @@ ESTA SEMANA · 3 ›
 - El **número** ata cada botón con su renglón: Telegram pone los botones todos juntos
   abajo, fuera de las secciones.
 - **⋯ Cambiar algo** lista las tareas para elegir cuál: mover de día, quién la hace,
-  renombrar, mandar al súper, borrar o agregar al calendario.
+  renombrar, mandar a compras, borrar o agregar al calendario.
 - Si tachás algo sin querer, aparece **↩️ Deshacer** en el tablero por 10 minutos.
 - Cada tarea aparece **en una sola sección**. Las colapsadas se abren en un mensaje
   aparte, así lo que toca uno no le cambia la pantalla al otro.
@@ -86,7 +87,7 @@ vos → ya compré la leche y la lavandina
 ```
 
 Funciona igual para borrar, mover («pasá todo lo de mañana para hoy»), renombrar,
-cambiar el responsable, vaciar el súper y pausar a Notita. Si el modelo entendió mal,
+cambiar el responsable, vaciar compras y pausar a Notita. Si el modelo entendió mal,
 no pasó nada.
 
 ### El parte diario
@@ -99,7 +100,7 @@ A las 20:00 (configurable) llega el único mensaje que suena:
 📌 Comprar la cómoda · los dos
 ⚠️ Quedó de hoy: Agarrar sábanas y acolchado
 [ ✅ Ya está ] [ ⏰ A mañana ]
-🛒 En el súper hay 4 cosas
+🛒 En compras hay 4 cosas
 ```
 
 **Nada se mueve solo:** una tarea vencida queda vencida hasta que alguien toque.
@@ -117,7 +118,7 @@ A las 20:00 (configurable) llega el único mensaje que suena:
 
 ```
 /tablero   publica el tablero al final del chat y lo fija (también: escribir «tablero»)
-/super     la lista del súper, con botones para tachar
+/compras   la lista de compras, con botones para tachar (alias: /super)
 /parte     manda el parte a mano (modo prueba)
 /ayuda     cómo usarlo
 /chatid    devuelve el chat_id (sirve para configurarlo la primera vez)
@@ -517,7 +518,7 @@ Qué sigue funcionando igual:
 - **Todas las fechas**: «el lunes», «esta semana», «el 3 de octubre», «en dos semanas»,
   «algún día»... es el mismo módulo testeado que usa el modo con LLM.
 - **Recurrencias**: «cada semana», «todos los martes», «todos los 10».
-- **Lista del súper**: por señales como «falta», «comprar», «se acabó».
+- **Lista de compras**: por señales como «falta», «comprar», «se acabó».
 - **Responsable**: si el mensaje nombra a alguien de `NOTITA_PERSONAS`, o dice «los dos».
 - **Categorías**: por palabras clave (`pagar`→pagos, `veterinario`→mascotas, etc.).
 - Contesta los saludos y no anota los «jajaja».
@@ -588,7 +589,7 @@ Tres documentos, según qué necesites:
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt pytest
 cp .env.example .env
-pytest                 # 484 tests, sin red ni API keys
+pytest                 # 503 tests, sin red ni API keys
 python app.py          # http://localhost:5000
 ```
 
@@ -662,7 +663,7 @@ notita/
   heuristica.py         el modo local, sin LLM
   handlers.py           qué hacer con cada mensaje y cada toque
   tablero.py            el mensaje fijado que se edita en el lugar
-  menus.py              los menús temporales (⋯, secciones, súper)
+  menus.py              los menús temporales (⋯, secciones, compras)
   propuestas.py         el texto propone, el botón ejecuta
   parte.py              el parte diario (lo único programado)
   calendario.py         el botón «Agregar al calendario»

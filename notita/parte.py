@@ -116,7 +116,7 @@ def render(chat_id: int, ref: date | None = None) -> tuple[str, list]:
             ])
 
     if compras:
-        lineas.append(f"\n🛒 En el súper hay <b>{len(compras)}</b> cosas")
+        lineas.extend(_lineas_compras(compras, manana))
 
     if not de_manana and not pendientes_hoy and not compras:
         # Nada para contar: un mensaje corto, o nada si así está configurado.
@@ -125,6 +125,22 @@ def render(chat_id: int, ref: date | None = None) -> tuple[str, list]:
         return f"🌙 Mañana libre ✨ ({views.dia_corto(manana)})", []
 
     return "\n".join(lineas), filas
+
+
+def _lineas_compras(compras, manana: date) -> list[str]:
+    """El parte nombra lo que hay que comprar para mañana, no sólo cuántas cosas."""
+    para_manana = [r for r in compras if de_iso(r["due_date"])
+                   and de_iso(r["due_date"]) <= manana]
+    lineas = []
+    if para_manana:
+        lineas.append("\n🛒 <b>Para mañana:</b> "
+                      + ", ".join(views.titulo_html(r) for r in para_manana[:8]))
+    resto = len(compras) - len(para_manana)
+    if resto:
+        lineas.append(f"\n🛒 En compras hay <b>{resto}</b> cosas más"
+                      if para_manana else
+                      f"\n🛒 En compras hay <b>{resto}</b> cosas")
+    return lineas
 
 
 def pasar_todas_a_manana(chat_id: int, ref: date | None = None) -> int:

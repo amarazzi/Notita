@@ -75,9 +75,9 @@ def test_sin_recurrencia_no_toca_el_texto():
     "falta leche", "comprar yerba", "se acabó el detergente",
     "faltan servilletas", "traer pan",
 ])
-def test_lo_que_va_al_super(frase):
+def test_lo_que_va_a_compras(frase):
     item = un_item(frase)
-    assert item["tipo"] == "super"
+    assert item["tipo"] == "compras"
     assert item["categoria"] == "compras"
     assert item["fecha_kind"] == "algun_dia"  # el súper no pregunta fecha
 
@@ -88,7 +88,7 @@ def test_lo_que_va_al_super(frase):
     "limpiar la heladera",
     "falta sacar la basura",
 ])
-def test_lo_que_no_va_al_super(frase):
+def test_lo_que_no_va_a_compras(frase):
     assert un_item(frase)["tipo"] == "tarea"
 
 
@@ -136,11 +136,11 @@ def test_separa_por_comas():
     assert [i["tipo"] for i in data["items"]] == ["tarea", "tarea", "tarea"]
 
 
-def test_una_lista_del_super_contagia_el_tipo():
+def test_una_lista_de_compras_contagia_el_tipo():
     # El verbo está sólo en el primer pedazo: «comprar yerba, pan y dulce de leche».
     data = heuristica.interpretar("comprar yerba, pan y dulce de leche")
     assert [i["titulo"] for i in data["items"]] == ["comprar yerba", "pan", "dulce de leche"]
-    assert all(i["tipo"] == "super" for i in data["items"])
+    assert all(i["tipo"] == "compras" for i in data["items"])
 
 
 def test_sin_comas_no_parte_la_frase():

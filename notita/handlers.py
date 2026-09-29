@@ -34,7 +34,7 @@ from .dates import (
     de_iso,
     fecha_imposible,
     hoy,
-    limpiar_item_de_super,
+    limpiar_item_de_compras,
     normalizar,
     parse_solo_fecha,
     proxima_ocurrencia,
@@ -241,7 +241,7 @@ def _comando(chat_id: int, texto: str, autor: str) -> None:
     if comando in ("tablero", "todo", "tareas", "start"):
         tablero.publicar(chat_id)
     elif comando in ("super", "compras"):
-        menus.abrir_super(chat_id)
+        menus.abrir_compras(chat_id)
     elif comando in ("ayuda", "help"):
         telegram.enviar(chat_id, views.ayuda())
     elif comando == "parte":
@@ -269,7 +269,7 @@ def _interpretar(chat_id: int, texto: str, autor: str, mensaje_id: int | None,
     if intencion == "ver":
         que = data.get("ver_que") or "tablero"
         if que == "super":
-            menus.abrir_super(chat_id)
+            menus.abrir_compras(chat_id)
         elif que == "ayuda":
             telegram.enviar(chat_id, views.ayuda(), silencioso=True)
         else:
@@ -306,15 +306,17 @@ def _crear(chat_id: int, items: list, autor: str, mensaje_id: int | None,
     creados: list[int] = []
     repetidos: list[str] = []
     sin_fecha_posible: list[str] = []
+    imposibles_ids: list[int] = []      # posiciones dentro de `creados`
 
     try:
         for item in items:
             titulo = _titulo_de(item)
             if not titulo:
                 continue
-            tipo = "compras" if item.get("tipo") == "super" else "casa"
+            # El modelo dice "compras"; se acepta "super" por los prompts viejos.
+            tipo = "compras" if item.get("tipo") in ("compras", "super") else "casa"
             if tipo == "compras":
-                titulo = limpiar_item_de_super(titulo)
+                titulo = limpiar_item_de_compras(titulo)
 
             ya = db.pendiente_igual(chat_id, titulo, tipo)
             if ya is not None:
@@ -328,12 +330,16 @@ def _crear(chat_id: int, items: list, autor: str, mensaje_id: int | None,
             rec = llm.recurrencia_de_item(item)
             imposible = fecha_imposible(spec)
             if imposible:
+                imposibles_ids.append(len(creados))   # se completa con el id real
                 sin_fecha_posible.append(titulo)
                 fecha, hora = None, None
             else:
                 fecha, hora = resolver_momento(spec)
             if tipo == "compras":
-                fecha, hora, rec = None, None, None
+                # La fecha SE CONSERVA: «para el asado del sábado falta carbón» es
+                # una compra con día. Lo que no aplica a una lista de compras es la
+                # hora ni la recurrencia.
+                hora, rec = None, None
             elif fecha is None and rec is not None:
                 fecha = _primera_ocurrencia(rec, ref)
 
@@ -354,15 +360,16 @@ def _crear(chat_id: int, items: list, autor: str, mensaje_id: int | None,
         telegram.enviar(chat_id, "No pude guardar eso 😕 Probá de nuevo en un ratito")
         return
 
+    con_fecha_rota = [creados[i] for i in imposibles_ids if i < len(creados)]
     cuerpo, teclado = _confirmacion(chat_id, filas, repetidos, sin_fecha_posible,
-                                    de_madrugada, ref)
+                                    de_madrugada, ref, con_fecha_rota)
     telegram.enviar(chat_id, _con_prefijo(escuchado, cuerpo), teclado, silencioso=True)
     tablero.actualizar(chat_id)
 
 
 def _confirmacion(chat_id: int, filas: list, repetidos: list[str],
                   imposibles: list[str], de_madrugada: bool,
-                  ref: date) -> tuple[str, list]:
+                  ref: date, ids_sin_fecha: list[int] | None = None) -> tuple[str, list]:
     lineas = []
     if filas:
         fechas = {f["due_date"] for f in filas if f["tipo"] == "casa"}
@@ -399,9 +406,16 @@ def _confirmacion(chat_id: int, filas: list, repetidos: list[str],
             boton = calendario.boton(f)
             if boton:
                 teclado.append([boton])
-        if imposibles and len(filas) == 1:
-            teclado.append([{"text": "📅 Elegir día",
-                             "callback_data": cb.armar("d+", filas[0]["id"])}])
+        # Un botón por cada fecha que no existía. Antes sólo aparecía si el mensaje
+        # traía un ítem, así que con dos se perdía.
+        for item_id in (ids_sin_fecha or [])[:3]:
+            row = db.obtener(item_id)
+            if row is None:
+                continue
+            etiqueta = "📅 Elegir día"
+            if len(ids_sin_fecha or []) > 1:
+                etiqueta += f": {views.recortar(views.titulo(row), 20)}"
+            teclado.append([{"text": etiqueta, "callback_data": cb.armar("d+", item_id)}])
     return "\n".join(lineas), teclado
 
 
@@ -484,7 +498,7 @@ def _proponer(chat_id: int, data: dict, autor: str, ref: date,
         rows = db.pendientes(chat_id, tipo="compras")
         if not rows:
             telegram.enviar(chat_id, _con_prefijo(
-                escuchado, "La lista del súper ya está vacía 🛒"), silencioso=True)
+                escuchado, "La lista de compras ya está vacía 🛒"), silencioso=True)
             return
         propuestas.ofrecer(chat_id, "completar", rows, ref=ref, prefijo=escuchado)
         return
@@ -616,10 +630,10 @@ def _callback(cq: dict) -> None:
         return
     if accion == "sup":
         telegram.responder_callback(cq_id)
-        menus.abrir_super(chat_id, message_id if _es_temporal(chat_id, message_id) else None)
+        menus.abrir_compras(chat_id, message_id if _es_temporal(chat_id, message_id) else None)
         return
     if accion == "supx":
-        _super_todo(chat_id, message_id, cq_id, quien, args)
+        _compras_todo(chat_id, message_id, cq_id, quien, args)
         return
     if accion == "p":
         _ejecutar_propuesta(chat_id, message_id, cq_id, quien, args, ref)
@@ -690,10 +704,11 @@ def _callback(cq: dict) -> None:
         nuevo_tipo = "casa" if row["tipo"] == "compras" else "compras"
         cambios = {"tipo": nuevo_tipo}
         if nuevo_tipo == "compras":
-            cambios.update({"categoria": "compras", "due_date": None, "due_hora": None})
+            # Se mantiene la fecha: mover algo a compras no es olvidarse de cuándo.
+            cambios.update({"categoria": "compras", "due_hora": None})
         db.actualizar(row["id"], **cambios)
         db.vencer_deshacer_de([row["id"]])
-        telegram.responder_callback(cq_id, "🛒 Al súper" if nuevo_tipo == "compras" else "📌 A tareas")
+        telegram.responder_callback(cq_id, "🛒 A compras" if nuevo_tipo == "compras" else "📌 A tareas")
         menus.cerrar(chat_id, message_id)
         tablero.actualizar(chat_id)
     elif accion == "x":
@@ -737,7 +752,7 @@ def _completar(chat_id: int, message_id: int, cq_id: str, row, quien: str,
     telegram.responder_callback(cq_id, aviso)
     if message_id and _es_temporal(chat_id, message_id):
         if _era_del_super(row):
-            menus.abrir_super(chat_id, message_id)
+            menus.abrir_compras(chat_id, message_id)
         else:
             menus.cerrar(chat_id, message_id)
     tablero.actualizar(chat_id)
@@ -792,18 +807,18 @@ def _pedir_texto(chat_id: int, cq_id: str, row, kind: str, pregunta: str) -> Non
     telegram.enviar(chat_id, pregunta, silencioso=True, forzar_respuesta=True)
 
 
-def _super_todo(chat_id: int, message_id: int, cq_id: str, quien: str,
+def _compras_todo(chat_id: int, message_id: int, cq_id: str, quien: str,
                 args: list) -> None:
     if not args:
         telegram.responder_callback(cq_id)
-        menus.confirmar_super_todo(chat_id, message_id)
+        menus.confirmar_compras_todo(chat_id, message_id)
         return
     rows = db.pendientes(chat_id, tipo="compras")
     for row in rows:
         db.marcar_hecha(row["id"], quien)
     db.vencer_deshacer_de([r["id"] for r in rows])
     telegram.responder_callback(cq_id, f"✅ {len(rows)} tachadas" if rows else "Ya estaba vacía")
-    menus.abrir_super(chat_id, message_id)
+    menus.abrir_compras(chat_id, message_id)
     tablero.actualizar(chat_id)
 
 

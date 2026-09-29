@@ -199,7 +199,7 @@ def fijar(chat_id: int, message_id: int) -> dict | None:
 # de que existían los comandos si no leía /ayuda.
 COMANDOS = (
     ("tablero", "Publica el tablero al final del chat"),
-    ("super", "La lista del súper"),
+    ("compras", "La lista de compras"),
     ("parte", "Manda el parte de hoy ahora mismo"),
     ("ayuda", "Cómo funciona Notita"),
 )

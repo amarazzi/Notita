@@ -672,7 +672,7 @@ def anotar_temporal(chat_id: int, message_id: int, tipo: str, minutos: int) -> N
 
 
 def renovar_temporal(chat_id: int, message_id: int, minutos: int) -> None:
-    """El mensaje del súper se usa mientras se compra: cada toque le da más vida."""
+    """El mensaje de compras se usa mientras se compra: cada toque le da más vida."""
     from datetime import timedelta
 
     with conn() as c:
@@ -825,15 +825,24 @@ def pausada_hasta(chat_id: int) -> date | None:
     return hasta
 
 
-def pendiente_igual(chat_id: int, texto: str, tipo: str):
-    """Un pendiente con el MISMO texto (normalizado). Para no anotar dos veces.
+# Al comparar dos títulos, los artículos no aportan: «comprar la cómoda para la
+# habitación» y «comprar cómoda para la habitación» son lo mismo.
+ARTICULOS = {"el", "la", "los", "las", "un", "una", "unos", "unas", "lo", "al", "del"}
 
-    A propósito exacto y no difuso: en v1 el fuzzy tachaba pantuflas cuando comprabas
-    pan.
-    """
+
+def clave_duplicado(texto: str) -> str:
     from .dates import normalizar
 
-    objetivo = normalizar(texto)
+    return " ".join(p for p in normalizar(texto).split() if p not in ARTICULOS)
+
+
+def pendiente_igual(chat_id: int, texto: str, tipo: str):
+    """Un pendiente con el MISMO texto. Para no anotar dos veces.
+
+    A propósito exacto y no difuso: en v1 el fuzzy tachaba pantuflas cuando comprabas
+    pan. Lo único que se ignora son los artículos.
+    """
+    objetivo = clave_duplicado(texto)
     if not objetivo:
         return None
     with conn() as c:
@@ -841,7 +850,7 @@ def pendiente_igual(chat_id: int, texto: str, tipo: str):
             "SELECT * FROM tasks WHERE chat_id = ? AND tipo = ? AND estado = 'pendiente'",
             (chat_id, tipo)).fetchall()
     for fila in filas:
-        if normalizar(fila["texto"]) == objetivo:
+        if clave_duplicado(fila["texto"]) == objetivo:
             return fila
     return None
 
