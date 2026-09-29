@@ -65,7 +65,7 @@ ESTA SEMANA · 3 ›
 
 Hay **una sola clase de cosa**. La 🛒 es una etiqueta para filtrar: lo que tiene fecha
 va en su día —con carrito o sin él— y lo que tiene 🛒 **y no tiene fecha** no se lista
-una por una, se cuenta en el botón de Compras.
+una por una. El botón cuenta **todo lo etiquetado**, igual que `/compras`.
 
 - **✅** la da por hecha de un toque. Sin mensajes nuevos en el grupo. Se lleva la fila
   entera porque es lo que más se toca: blanco grande y título legible.
@@ -593,7 +593,7 @@ Tres documentos, según qué necesites:
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt pytest
 cp .env.example .env
-pytest                 # 543 tests, sin red ni API keys
+pytest                 # 545 tests, sin red ni API keys
 python app.py          # http://localhost:5000
 ```
 

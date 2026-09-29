@@ -260,8 +260,13 @@ responsable opcional, recurrencia opcional, y una **etiqueta booleana `compra`**
 
 Lo único especial de la etiqueta, y es de visualización: una cosa con 🛒 **y sin
 fecha** no se lista una por una en el tablero (serían quince renglones de almacén
-tapando las tareas); se cuenta en el botón «🛒 Compras · N ›». Con fecha, va en su día
-como cualquier otra cosa, con el carrito adelante.
+tapando las tareas). Con fecha, va en su día como cualquier otra cosa, con el carrito
+adelante.
+
+El contador del botón «🛒 Compras · N ›» cuenta **todo lo etiquetado**, tenga fecha o
+no, porque tiene que dar lo mismo que `/compras`. Al principio contaba sólo las que no
+tienen día y quedaban dos números distintos para la misma cosa: cuando eso pasa, no se
+cree ninguno de los dos.
 
 Los duplicados se comparan con **una sola regla**: sin tildes, sin mayúsculas, sin
 artículos y sin los arranques de relleno («hay que», «falta», «comprar»…). Eso hace que

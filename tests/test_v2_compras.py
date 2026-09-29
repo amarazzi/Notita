@@ -631,3 +631,34 @@ def test_la_fecha_del_respaldo_es_cuando_se_hizo(tmp_path, monkeypatch):
     respaldo = next(iter(tmp_path.glob("prod.db.antes-de-v3.*.bak")))
     assert respaldo.stat().st_mtime > hace_un_mes + 3600, "tiene que ser de ahora"
     assert respaldo.stat().st_mode == ruta.stat().st_mode, "los permisos sí se copian"
+
+
+def test_el_contador_de_compras_da_lo_mismo_que_la_lista(enviados):
+    """Contaba sólo las que no tienen fecha, y /compras las muestra todas.
+
+    Dos números para lo mismo: después no se cree ninguno.
+    """
+    db.crear_tarea(CHAT, "Falta carbón", compra=True, due=MANANA)
+    db.crear_tarea(CHAT, "Falta leche", compra=True)
+    db.crear_tarea(CHAT, "Falta yerba", compra=True)
+    db.crear_tarea(CHAT, "Sacar la basura", due=hoy())
+
+    texto, filas = tablero.render(CHAT)
+    enviados.clear()
+    menus.abrir_compras(CHAT)
+
+    assert "🛒 <b>COMPRAS</b> · 3" in texto
+    assert any(b["text"] == "🛒 Compras · 3" for fila in filas for b in fila)
+    assert "🛒 <b>Compras</b> · 3" in textos(enviados)[0]
+    # Y el carbón sigue apareciendo una sola vez en las secciones.
+    assert [r["texto"] for r in secciones_del_tablero()["manana"]] == ["Falta carbón"]
+
+
+def test_con_todas_las_compras_fechadas_el_boton_igual_aparece(enviados):
+    """Antes desaparecía el acceso a /compras aunque hubiera cosas etiquetadas."""
+    db.crear_tarea(CHAT, "Falta carbón", compra=True, due=MANANA)
+
+    texto, filas = tablero.render(CHAT)
+
+    assert "🛒 <b>COMPRAS</b> · 1" in texto
+    assert any("🛒 Compras · 1" == b["text"] for fila in filas for b in fila)

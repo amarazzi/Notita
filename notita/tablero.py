@@ -40,8 +40,10 @@ def render(chat_id: int, ref: date | None = None) -> tuple[str, list]:
     ref = ref or hoy()
     cosas = db.pendientes(chat_id)
     # Lo único especial de la etiqueta 🛒, y es de visualización: una compra SIN
-    # fecha no se lista una por una; se cuenta en el botón de Compras.
-    compras_sueltas = [r for r in cosas if r["compra"] and not r["due_date"]]
+    # fecha no se lista una por una. El contador, en cambio, cuenta TODO lo
+    # etiquetado: tiene que dar lo mismo que /compras, o son dos números para lo
+    # mismo y ninguno se cree.
+    compras = [r for r in cosas if r["compra"]]
     secciones = repartir(cosas, ref)
 
     lineas = [f"📋 <b>La casa</b> · {views.dia_largo(ref)}"]
@@ -77,9 +79,9 @@ def render(chat_id: int, ref: date | None = None) -> tuple[str, list]:
             atajos.append({"text": f"{_icono(clave)} {_nombre_corto(clave)} · {len(rows)}",
                            "callback_data": cb.armar("sec", clave)})
 
-    if compras_sueltas:
-        lineas.append(f"\n🛒 <b>COMPRAS</b> · {len(compras_sueltas)} ›")
-        atajos.append({"text": f"🛒 Compras · {len(compras_sueltas)}",
+    if compras:
+        lineas.append(f"\n🛒 <b>COMPRAS</b> · {len(compras)} ›")
+        atajos.append({"text": f"🛒 Compras · {len(compras)}",
                        "callback_data": cb.armar("sup")})
 
     # De a dos por fila: son etiquetas cortas y apiladas quedaban como una pila de
