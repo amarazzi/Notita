@@ -63,8 +63,7 @@ SERVICIO = (
 # Comandos de v1 que ya no existen. Decir dónde está eso ahora es más útil que
 # «no lo tengo», sobre todo porque quedaron en el historial del grupo.
 JUBILADOS = {
-    "algundia": "«Algún día» ahora es una sección del tablero 📋 Tocá /tablero y "
-                "después el botón <b>Algún día</b>.",
+    "algundia": "Eso ahora se ve en el tablero, en <b>Sin fecha</b> 📋 Tocá /tablero.",
     "recordatorios": "Eso ahora es el parte de la noche: /parte lo manda al toque.",
     "probar": "Eso ahora es /parte 🤍",
     "resumen": "El resumen semanal ya no existe: ahora hay un parte todos los días. "
@@ -399,7 +398,7 @@ def _confirmacion(chat_id: int, filas: list, repetidos: list[str],
         lineas.append(f"👀 Ya estaba: {repetido}")
     for imposible in imposibles:
         lineas.append(f"📅 Esa fecha no existe, dejé «{telegram.escapar(imposible)}» "
-                      f"para algún día")
+                      f"sin fecha")
 
     ids = [f["id"] for f in filas]
     teclado: list[list[dict]] = []

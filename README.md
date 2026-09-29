@@ -45,15 +45,19 @@ El **tablero** es un mensaje fijado en el grupo que se edita en el lugar:
 
 ```
 📋 La casa · lun 28/9
+
 ⚠️ Vencidas
 1. 🧽 Agarrar sábanas y acolchado · venció el sáb 26/9
+
 Hoy
 2. 🐾 Llevar a Milo al veterinario · 🕕 18:00 · Barbu
 3. 🛒 Falta carbón para el asado
+
 Mañana · mar 29
 4. 💸 Pagar el ABL
+
 Esta semana: 📄 Ir a la sede · vie 2/10
-Algún día: 4
+Sin fecha: 4
 
 [ ✅ 1 ] [ ✅ 2 ] [ ✅ 3 ] [ ✅ 4 ]
 [ 🛒 Compras · 5 ] [ ⋯ Cambiar algo ]
@@ -593,7 +597,7 @@ Tres documentos, según qué necesites:
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt pytest
 cp .env.example .env
-pytest                 # 547 tests, sin red ni API keys
+pytest                 # 550 tests, sin red ni API keys
 python app.py          # http://localhost:5000
 ```
 

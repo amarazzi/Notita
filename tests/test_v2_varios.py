@@ -642,7 +642,7 @@ def test_los_comandos_viejos_dicen_donde_esta_eso_ahora(enviados):
     handlers.handle_update(mensaje("/recordatorios", update_id=11))
 
     salida = textos(enviados)
-    assert "sección del tablero" in salida[0]
+    assert "Sin fecha" in salida[0]
     assert "/parte" in salida[1]
     assert not [t for t in salida if "no lo tengo" in t]
 

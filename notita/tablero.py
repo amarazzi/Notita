@@ -49,9 +49,19 @@ def render(chat_id: int, ref: date | None = None) -> tuple[str, list]:
     numerables = _numerables(secciones)
     numeros = {r["id"]: i for i, r in enumerate(numerables, start=1)}
 
-    lineas = [f"📋 <b>La casa</b> · {views.dia_corto(ref, con_mes=True)}"]
-    lineas += _texto_de_los_dias(secciones, numeros, ref)
-    lineas += _texto_de_las_otras(secciones, ref)
+    # Los bloques se separan con un renglón en blanco (el tablero apretado se lee
+    # como una pared de texto), pero las líneas de resumen van juntas entre sí: son
+    # una sola idea, «lo que no es para hoy ni mañana».
+    bloques = [[f"📋 <b>La casa</b> · {views.dia_corto(ref, con_mes=True)}"]]
+    bloques += _bloques_de_los_dias(secciones, numeros, ref)
+    resumen = _texto_de_las_otras(secciones, ref)
+    if resumen:
+        bloques.append(resumen)
+    lineas = []
+    for bloque in bloques:
+        if lineas:
+            lineas.append("")
+        lineas += bloque
 
     filas = _botones_de_tachar(numerables, numeros)
     filas.append([
@@ -83,22 +93,27 @@ def _numerables(secciones: dict) -> list:
     return secciones["vencidas"] + secciones["hoy"]
 
 
-def _texto_de_los_dias(secciones: dict, numeros: dict, ref: date) -> list[str]:
-    """Vencidas, hoy y mañana: listadas, porque son lo que hay que hacer."""
-    lineas = []
+def _bloques_de_los_dias(secciones: dict, numeros: dict,
+                         ref: date) -> list[list[str]]:
+    """Vencidas, hoy y mañana: listadas, porque son lo que hay que hacer.
+
+    Cada una es un bloque, así queda un renglón en blanco entre medio.
+    """
+    bloques = []
     if secciones["vencidas"]:
-        lineas.append("⚠️ <b>Vencidas</b>")
-        lineas += [_renglon(r, numeros, ref, con_fecha=True)
-                   for r in secciones["vencidas"]]
+        bloques.append(["⚠️ <b>Vencidas</b>"]
+                       + [_renglon(r, numeros, ref, con_fecha=True)
+                          for r in secciones["vencidas"]])
     if secciones["hoy"]:
-        lineas.append("<b>Hoy</b>")     # la fecha ya está en el encabezado
-        lineas += [_renglon(r, numeros, ref) for r in secciones["hoy"]]
+        # La fecha ya está en el encabezado.
+        bloques.append(["<b>Hoy</b>"]
+                       + [_renglon(r, numeros, ref) for r in secciones["hoy"]])
     if secciones["manana"]:
-        lineas.append(f"<b>Mañana</b> · {views.dia_corto(ref + timedelta(days=1))}")
-        lineas += [_renglon(r, numeros, ref) for r in secciones["manana"]]
+        bloques.append([f"<b>Mañana</b> · {views.dia_corto(ref + timedelta(days=1))}"]
+                       + [_renglon(r, numeros, ref) for r in secciones["manana"]])
     if not secciones["hoy"] and not secciones["manana"]:
-        lineas.append("Nada para hoy ni mañana ✨")
-    return lineas
+        bloques.append(["Nada para hoy ni mañana ✨"])
+    return bloques
 
 
 def _renglon(row, numeros: dict, ref: date, con_fecha: bool = False) -> str:
@@ -180,7 +195,7 @@ ORDEN = ("vencidas", "hoy", "manana", "semana", "adelante", "algun_dia")
 def _nombre_corto(clave: str) -> str:
     return {"vencidas": "Vencidas", "hoy": "Hoy", "manana": "Mañana",
             "semana": "Esta semana", "adelante": "Más adelante",
-            "algun_dia": "Algún día"}[clave]
+            "algun_dia": "Sin fecha"}[clave]
 
 
 

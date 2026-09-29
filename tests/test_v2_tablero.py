@@ -465,8 +465,10 @@ def test_el_tablero_vacio_tiene_exactamente_dos_botones(enviados):
 
     etiquetas = [b["text"] for fila in filas for b in fila]
     assert etiquetas == ["🛒 Compras · 0", "⋯ Cambiar algo"]
-    assert texto.splitlines() == ["📋 <b>La casa</b> · " + views.dia_corto(hoy(), con_mes=True),
-                                  "Nada para hoy ni mañana ✨"]
+    assert texto.splitlines() == [
+        "📋 <b>La casa</b> · " + views.dia_corto(hoy(), con_mes=True),
+        "",
+        "Nada para hoy ni mañana ✨"]
 
 
 def test_ninguna_seccion_aparece_como_boton(enviados):
@@ -478,11 +480,11 @@ def test_ninguna_seccion_aparece_como_boton(enviados):
     texto, filas = tablero.render(CHAT)
 
     etiquetas = [b["text"] for fila in filas for b in fila]
-    for nombre in ("Esta semana", "Más adelante", "Algún día", "Vencidas", "Hoy",
+    for nombre in ("Esta semana", "Más adelante", "Sin fecha", "Vencidas", "Hoy",
                    "Mañana"):
         assert not any(nombre in e for e in etiquetas), f"{nombre} sigue siendo botón"
     # Pero en el texto sí están, que es donde se leen.
-    assert "Esta semana:" in texto and "Algún día:" in texto
+    assert "Esta semana:" in texto and "Sin fecha:" in texto
     assert "callback_data" not in texto
     assert not any(b["callback_data"].startswith("2|sec")
                    for fila in filas for b in fila)
@@ -559,9 +561,8 @@ def test_las_secciones_vacias_no_se_muestran(enviados):
 
     texto, _ = tablero.render(CHAT)
 
-    for nombre in ("Esta semana", "Más adelante", "Algún día", "Vencidas", "Mañana"):
+    for nombre in ("Esta semana", "Más adelante", "Sin fecha", "Vencidas", "Mañana"):
         assert nombre not in texto
-    assert "" not in texto.splitlines(), "ni renglones vacíos"
 
 
 def test_el_deshacer_se_va_a_los_cinco_minutos(enviados, monkeypatch):
@@ -596,3 +597,49 @@ def test_el_menu_cambiar_algo_lista_todo_lo_que_no_tiene_boton(enviados):
                  for b in fila]
     for cosa in ("Pagar el ABL", "Ir a la sede", "Pintar el balcón", "Falta leche"):
         assert any(cosa in e for e in etiquetas), f"{cosa} quedó inaccesible"
+
+
+def test_los_bloques_se_separan_con_un_renglon_en_blanco(enviados):
+    """Todo pegado se lee como una pared de texto."""
+    db.crear_tarea(CHAT, "Pagar el ABL", due=hoy() - timedelta(days=2), categoria="pagos")
+    db.crear_tarea(CHAT, "Sacar la basura", due=hoy())
+    db.crear_tarea(CHAT, "Llamar al plomero", due=hoy() + timedelta(days=1))
+    db.crear_tarea(CHAT, "Pintar el balcón")
+
+    texto, _ = tablero.render(CHAT)
+    renglones = texto.splitlines()
+
+    def antes_de(marca):
+        i = next(n for n, r in enumerate(renglones) if marca in r)
+        return renglones[i - 1]
+
+    assert antes_de("Vencidas") == "", "aire después del encabezado"
+    assert antes_de("<b>Hoy</b>") == ""
+    assert antes_de("<b>Mañana</b>") == ""
+    assert antes_de("Sin fecha:") == ""
+    assert renglones[-1] != "", "sin un renglón en blanco al final"
+
+
+def test_las_lineas_de_resumen_van_juntas_entre_si(enviados):
+    """Son una sola idea: «lo que no es para hoy ni mañana»."""
+    db.crear_tarea(CHAT, "Pagar el ABL", due=hoy() + timedelta(days=3))
+    db.crear_tarea(CHAT, "Ir a la sede", due=hoy() + timedelta(days=20))
+    db.crear_tarea(CHAT, "Pintar el balcón")
+
+    texto, _ = tablero.render(CHAT)
+    renglones = texto.splitlines()
+    resumen = [n for n, r in enumerate(renglones)
+               if r.startswith(("<b>Esta semana:", "<b>Más adelante:", "<b>Sin fecha:"))]
+
+    assert len(resumen) == 3
+    assert resumen == list(range(resumen[0], resumen[0] + 3)), "sin aire entre ellas"
+
+
+def test_lo_que_no_tiene_fecha_no_dice_algun_dia(enviados):
+    """«Algún día» suena a lista de deseos; son cosas sin fecha."""
+    db.crear_tarea(CHAT, "Pintar el balcón")
+
+    texto, _ = tablero.render(CHAT)
+
+    assert "<b>Sin fecha:</b>" in texto
+    assert "lgún día" not in texto

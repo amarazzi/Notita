@@ -30,7 +30,7 @@ Y en el grupo, escribí `tablero` para tener el tablero fijado a la vista.
 | 1.5 | `Barbu tiene que sacar la basura` | Queda a nombre de **Barbu** |
 | 1.6 | `comprar pan` | **No** queda a nombre de nadie: nadie dijo quién |
 | 1.7 | `regar las plantas cada 3 días` | Dice `🔁 cada 3 días` y arranca **hoy** |
-| 1.8 | `pagar la expensa el 31 de febrero` | Avisa que esa fecha no existe, lo guarda igual y ofrece elegir día |
+| 1.8 | `pagar la expensa el 31 de febrero` | Avisa que esa fecha no existe, lo guarda **sin fecha** y ofrece elegir día |
 | 1.9 | `falta leche` otra vez | «Ya estaba: Leche». No se duplica |
 | 1.10 | `hola notita` | Contesta algo corto y simpático. **No** anota nada |
 | 1.11 | Mandá una **foto** | «Todavía no entiendo audios ni fotos». No anota nada |
@@ -49,7 +49,7 @@ mensaje, y `✏️ Corregir` abre el menú del ítem.
 | 2.2 | Tocá un `✅` | La tarea desaparece del tablero **al instante**, sin mensajes nuevos en el grupo |
 | 2.3 | Mirá abajo del tablero | Apareció `↩️ Deshacer` diciendo **qué** va a deshacer. A los 5 minutos se va |
 | 2.4 | Tocalo | La tarea vuelve |
-| 2.5 | Tocá `⋯ Cambiar algo` | Un mensaje **aparte** con **todas** las cosas, incluidas las de «Algún día» y las compras. El tablero no se mueve |
+| 2.5 | Tocá `⋯ Cambiar algo` | Un mensaje **aparte** con **todas** las cosas, incluidas las de «Sin fecha» y las compras. El tablero no se mueve |
 | 2.6 | Elegí una → `📅 Otro día` → `Mañana` | Cambia de día y el menú se cierra |
 | 2.7 | Otra vez `⋯` → `👤 Quién` → elegí a alguien | Queda a su nombre, y se ve en el tablero |
 | 2.8 | `⋯` → `✏️ Renombrar` y contestá al mensaje | Cambia **sólo** esa tarea |

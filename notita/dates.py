@@ -632,7 +632,7 @@ def proxima_ocurrencia(rec: Recurrencia | None, desde: date) -> date | None:
 
 def formato_humano(d: date | None, ref: date | None = None) -> str:
     if d is None:
-        return "algún día"
+        return "sin fecha"
     ref = ref or hoy()
     delta = (d - ref).days
     if delta == 0:

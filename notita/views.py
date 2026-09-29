@@ -41,10 +41,10 @@ def dia_largo(d: date) -> str:
 def cuando(d: date | None, hora: str | None = None, ref: date | None = None) -> str:
     """La fecha como la dice Notita: siempre con día de la semana y número.
 
-    «hoy, dom 27» · «mañana, lun 28» · «jue 1/10» · «algún día»
+    «hoy, dom 27» · «mañana, lun 28» · «jue 1/10» · «sin fecha»
     """
     if d is None:
-        return "algún día"
+        return "sin fecha"
     ref = ref or hoy()
     dias = (d - ref).days
     if dias == 0:

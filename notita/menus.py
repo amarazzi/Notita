@@ -80,7 +80,7 @@ def submenu_dia(chat_id: int, message_id: int, item_id: int, ref: date | None = 
           "callback_data": cb.armar("d", item_id, "m")}],
         [{"text": f"Sáb {sabado.day}", "callback_data": cb.armar("d", item_id, "s")},
          {"text": f"Lun {lunes.day}", "callback_data": cb.armar("d", item_id, "l")},
-         {"text": "Algún día", "callback_data": cb.armar("d", item_id, "a")}],
+         {"text": "Sin fecha", "callback_data": cb.armar("d", item_id, "a")}],
         [{"text": "⌨️ Escribir fecha", "callback_data": cb.armar("df", item_id)},
          {"text": "✖️ Cerrar", "callback_data": cb.armar("c")}],
     ]
@@ -159,7 +159,7 @@ def abrir_seccion(chat_id: int, clave: str, ref: date | None = None) -> None:
                            [[{"text": "✖️ Cerrar", "callback_data": cb.armar("c")}]], "seccion")
         return
     titulo = {"vencidas": "⚠️ Vencidas", "semana": "Esta semana",
-              "adelante": "Más adelante", "algun_dia": "Algún día",
+              "adelante": "Más adelante", "algun_dia": "Sin fecha",
               "hoy": "Hoy", "manana": "Mañana"}.get(clave, clave)
     lineas = [f"<b>{titulo}</b> · {len(rows)}"]
     filas = []

@@ -67,9 +67,15 @@ importa— quedaban abajo, escondidas.
 - Se numeran **vencidas, hoy y mañana**, que es lo que hay que hacer. Si son más de
   diez, mañana pierde los números (se sigue leyendo) y se maneja por el `⋯`: un
   tablero con quince botones es un tablero de control.
-- **Esta semana, Más adelante y Algún día son una línea de texto sin botón.** Con una
+- **Esta semana, Más adelante y Sin fecha son una línea de texto sin botón.** Con una
   o dos cosas se nombran («Más adelante: Ir a la sede · dom 4/10»), porque un número
   solo no dice nada; con más, sólo el número, porque cinco títulos tapan lo de hoy.
+  Las tres van juntas, sin aire entre ellas: son una sola idea, «lo que no es para hoy
+  ni mañana».
+- **Un renglón en blanco entre bloques.** Sin aire, el tablero se lee como una pared de
+  texto y no se distingue lo de hoy de lo de la semana que viene.
+- Lo que no tiene fecha se llama **«Sin fecha»**, no «Algún día»: no es una lista de
+  deseos, es el estado de una cosa que todavía no tiene día.
 - **`⋯ Cambiar algo` lista TODO**, incluidas las compras sin fecha y las secciones
   lejanas. Ninguna cosa queda inaccesible por no tener botón propio.
 - El **`↩️ Deshacer`** es una fila que aparece 5 minutos después de tachar o borrar, y

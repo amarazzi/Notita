@@ -495,7 +495,7 @@ def test_una_compra_sin_fecha_no_dice_algun_dia(enviados, monkeypatch):
 
     confirmacion = textos(enviados)[0]
     assert "🛒 Falta leche" in confirmacion
-    assert "algún día" not in confirmacion
+    assert "sin fecha" not in confirmacion
 
 
 def test_una_cosa_sin_fecha_y_sin_carrito_si_lo_dice(enviados, monkeypatch):
@@ -504,7 +504,7 @@ def test_una_cosa_sin_fecha_y_sin_carrito_si_lo_dice(enviados, monkeypatch):
 
     handlers.handle_update(mensaje("pintar el balcón"))
 
-    assert "algún día" in textos(enviados)[0]
+    assert "sin fecha" in textos(enviados)[0]
 
 
 def test_la_confirmacion_mezcla_las_dos_cosas(enviados, monkeypatch):

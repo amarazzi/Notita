@@ -134,7 +134,7 @@ def test_fin_de_semana():
 # algún día
 # --------------------------------------------------------------------------
 
-@pytest.mark.parametrize("texto", ["algún día", "no sé", "cuando se pueda", "ni idea", "sin fecha"])
+@pytest.mark.parametrize("texto", ["sin fecha", "no sé", "cuando se pueda", "ni idea", "sin fecha"])
 def test_algun_dia_no_tiene_vencimiento(texto):
     spec, d = parse_y_resolver(texto, MARTES)
     assert spec.kind == "algun_dia"
@@ -189,6 +189,6 @@ def test_formato_humano():
     assert formato_humano(MARTES, MARTES) == "hoy"
     assert formato_humano(date(2026, 9, 30), MARTES) == "mañana"
     assert formato_humano(date(2026, 10, 1), MARTES) == "pasado mañana"
-    assert formato_humano(None, MARTES) == "algún día"
+    assert formato_humano(None, MARTES) == "sin fecha"
     assert "venció" in formato_humano(date(2026, 9, 20), MARTES)
     assert formato_humano(date(2026, 10, 3), MARTES) == "el sábado 3/10"
