@@ -24,4 +24,4 @@ jobs:
         # Sin red ni API keys: si algún test intenta salir a internet, falla.
         run: python -m pytest -q
       - name: pyflakes
-        run: python -m pyflakes install.py doctor.py app.py run_parte.py set_webhook.py notita/ tests/ docs/demo/
+        run: python -m pyflakes install.py doctor.py app.py run_parte.py set_webhook.py migrar_chat.py notita/ tests/

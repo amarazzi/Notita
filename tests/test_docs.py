@@ -99,3 +99,18 @@ def test_la_cantidad_de_tests_del_readme_es_plausible():
     # Los parametrize inflan el número real, así que sólo se exige el orden correcto.
     assert reales <= declarados <= reales * 3, \
         f"el README dice {declarados} y hay {reales} funciones de test"
+
+
+def test_el_ci_revisa_todos_los_scripts_y_ninguno_que_no_exista():
+    """El CI corría pyflakes sobre `docs/demo/`, que se borró, y fallaba entero.
+
+    Y no revisaba `migrar_chat.py`, que se agregó después.
+    """
+    ci = (RAIZ / ".github" / "workflows" / "tests.yml").read_text(encoding="utf-8")
+    linea = [x for x in ci.splitlines() if "-m pyflakes" in x][0]
+    revisados = [x for x in linea.split() if x.endswith(".py") or x.endswith("/")]
+
+    for destino in revisados:
+        assert (RAIZ / destino).exists(), f"el CI revisa {destino}, que no existe"
+    for script in RAIZ.glob("*.py"):
+        assert script.name in revisados, f"el CI no revisa {script.name}"
