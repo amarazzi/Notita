@@ -10,6 +10,7 @@ Y el texto libre sólo CREA. Cualquier modificación se propone con botones.
 from __future__ import annotations
 
 import logging
+import re
 from datetime import date, timedelta
 
 from . import (
@@ -269,7 +270,7 @@ def _interpretar(chat_id: int, texto: str, autor: str, mensaje_id: int | None) -
         _proponer(chat_id, data, autor, ref)
         return
     if intencion == "crear" and (data.get("items") or []):
-        _crear(chat_id, data["items"], autor, mensaje_id, ref)
+        _crear(chat_id, data["items"], autor, mensaje_id, ref, texto)
         return
 
     comentario = (data.get("comentario") or "").strip()
@@ -278,8 +279,12 @@ def _interpretar(chat_id: int, texto: str, autor: str, mensaje_id: int | None) -
 
 
 def _crear(chat_id: int, items: list, autor: str, mensaje_id: int | None,
-           ref: date) -> None:
-    """Guarda todo y después CONFIRMA LEYENDO DE LA BASE."""
+           ref: date, texto: str = "") -> None:
+    """Guarda todo y después CONFIRMA LEYENDO DE LA BASE.
+
+    `texto` es el mensaje original: se usa para no creerle al modelo un responsable
+    que el mensaje no menciona.
+    """
     de_madrugada = ahora().hour < MADRUGADA_HASTA
     creados: list[int] = []
     repetidos: list[str] = []
@@ -318,7 +323,7 @@ def _crear(chat_id: int, items: list, autor: str, mensaje_id: int | None,
             creados.append(db.crear_tarea(
                 chat_id, titulo, tipo=tipo,
                 categoria="compras" if tipo == "compras" else _categoria(item),
-                responsable=_responsable(item), due=fecha, recurrencia=rec,
+                responsable=_responsable(item, texto, autor), due=fecha, recurrencia=rec,
                 created_by=autor, hora=hora, mensaje_origen_id=mensaje_id))
     except Exception:
         log.exception("No pude guardar los items")
@@ -392,9 +397,33 @@ def _categoria(item: dict) -> str:
     return cat if cat in config.CATEGORIAS else "otros"
 
 
-def _responsable(item: dict) -> str:
+# Pistas de que alguien se ofreció sin decir su nombre: «lo hago yo», «me encargo».
+PRIMERA_PERSONA = re.compile(r"\b(yo|me encargo|lo hago|la hago|voy a hacerlo|"
+                            r"me ocupo|yo me)\b")
+JUNTOS = re.compile(r"\b(los dos|las dos|ambos|ambas|juntos|juntas|entre los dos)\b")
+
+
+def _responsable(item: dict, texto: str, autor: str) -> str:
+    """El responsable SÓLO si el mensaje lo dice. El modelo a veces lo adivina.
+
+    Pasó de verdad: «comprar leche y yerba» quedó como «Leche · al súper · Axel»
+    porque el prompt le cuenta quién escribió y el modelo dedujo que lo hace esa
+    persona. En una lista compartida eso es información inventada, así que se exige
+    evidencia en el texto.
+    """
     quien = item.get("responsable")
-    return quien if quien in config.PERSONAS else "ninguno"
+    if quien not in config.PERSONAS or quien == "ninguno":
+        return "ninguno"
+    plano = normalizar(texto)
+    if quien == "ambos":
+        return "ambos" if JUNTOS.search(plano) else "ninguno"
+    nombre = normalizar(config.NOMBRES.get(quien, quien))
+    if re.search(rf"\b{re.escape(nombre)}\b", plano) or re.search(rf"\b{re.escape(quien)}\b", plano):
+        return quien
+    if quien == autor and PRIMERA_PERSONA.search(plano):
+        return quien       # «lo hago yo»: no dice el nombre, pero se ofreció
+    log.info("Descarto responsable %r: el mensaje no lo dice", quien)
+    return "ninguno"
 
 
 def _primera_ocurrencia(rec, ref: date) -> date:

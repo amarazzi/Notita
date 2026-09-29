@@ -369,3 +369,44 @@ def test_un_callback_repetido_tampoco(enviados, monkeypatch):
     handlers.handle_update(click(cb.armar("ok", item_id), cq_id="igual"))
 
     assert len(enviados) == antes, "el segundo no hace nada"
+
+
+# --------------------------------------------------------------------------
+# El responsable, sólo si el mensaje lo dice
+# --------------------------------------------------------------------------
+
+@pytest.mark.parametrize("texto,dijo_el_modelo,queda", [
+    # Lo que pasó de verdad con un audio: «comprar leche y yerba» quedó como
+    # «Leche · al súper · Axel» porque el modelo dedujo que lo hace quien escribió.
+    ("comprar leche y yerba", "axel", "ninguno"),
+    ("pintar el balcón", "ambos", "ninguno"),
+    # Con evidencia en el texto, se respeta.
+    ("que Barbu compre pan", "barbu", "barbu"),
+    ("Barbu tiene que llevar a Milo al veterinario", "barbu", "barbu"),
+    ("avisale a barbu que compre pan", "barbu", "barbu"),
+    ("limpiar el horno, lo hago yo", "axel", "axel"),
+    ("pintar el balcón entre los dos", "ambos", "ambos"),
+    ("hay que sacar la basura", "ninguno", "ninguno"),
+])
+def test_el_responsable_necesita_estar_en_el_mensaje(texto, dijo_el_modelo, queda):
+    assert handlers._responsable({"responsable": dijo_el_modelo}, texto, "axel") == queda
+
+
+def test_un_responsable_inventado_no_llega_a_la_base(enviados, monkeypatch):
+    responde(monkeypatch, items=[item("Leche", tipo="super", responsable="axel",
+                                      fecha_kind="algun_dia")])
+
+    handlers.handle_update(mensaje("comprar leche"))
+
+    assert db.pendientes(CHAT, tipo="compras")[0]["responsable"] == "ninguno"
+    assert "Axel" not in textos(enviados)[0]
+
+
+def test_pero_el_que_si_dijeron_llega(enviados, monkeypatch):
+    responde(monkeypatch, items=[item("llevar a Milo al veterinario",
+                                      responsable="barbu", fecha_kind="manana")])
+
+    handlers.handle_update(mensaje("Barbu tiene que llevar a Milo al veterinario mañana"))
+
+    assert db.pendientes(CHAT, tipo="casa")[0]["responsable"] == "barbu"
+    assert "Barbu" in textos(enviados)[0]
