@@ -56,19 +56,25 @@ No hay ningún camino en el que un texto modifique algo existente.
 
 ### El tablero, como quedó
 
-El teclado de Telegram va **abajo del texto**, no intercalado: los botones no
-«pertenecen» visualmente a su sección. Por eso:
+**El texto es para leer; los botones, sólo para hacer.** La versión anterior mostraba
+las secciones como texto **y** como botón, y el deshacer como renglón **y** como
+botón: el doble de alto para la misma información, y las tareas —lo único que
+importa— quedaban abajo, escondidas.
 
-- El texto lista las tareas **numeradas**, con la hora, el responsable y la
-  recurrencia; el botón lleva el mismo número. El número es lo que ata las dos cosas.
-- El **✅ se lleva la fila entera**: es lo que más se toca, así que merece un blanco
-  grande y un título legible.
-- El `⋯` de cada tarea no entra en el tablero (sería media fila por tarea): hay un
-  **`⋯ Cambiar algo`** que lista las tareas numeradas para elegir.
-- Si se tachó algo hace poco, aparece **`↩️ Deshacer`** con lo que va a revertir
-  escrito en el texto. Un ✅ mal tocado no tenía vuelta atrás.
-- Cada sección expandida muestra como mucho 25 tareas y ofrece ver el resto: con una
-  fila por tarea, 45 filas son imposibles de usar (y Telegram corta en 100 botones).
+- El teclado de Telegram va **abajo del texto**, no intercalado, así que el **número**
+  es lo único que ata un renglón con su botón. Por eso el botón es sólo `✅ 3`: el
+  texto ya dice qué es, con la hora, el responsable y la recurrencia.
+- Se numeran **vencidas, hoy y mañana**, que es lo que hay que hacer. Si son más de
+  diez, mañana pierde los números (se sigue leyendo) y se maneja por el `⋯`: un
+  tablero con quince botones es un tablero de control.
+- **Esta semana, Más adelante y Algún día son una línea de texto sin botón.** Con una
+  o dos cosas se nombran («Más adelante: Ir a la sede · dom 4/10»), porque un número
+  solo no dice nada; con más, sólo el número, porque cinco títulos tapan lo de hoy.
+- **`⋯ Cambiar algo` lista TODO**, incluidas las compras sin fecha y las secciones
+  lejanas. Ninguna cosa queda inaccesible por no tener botón propio.
+- El **`↩️ Deshacer`** es una fila que aparece 5 minutos después de tachar o borrar, y
+  se va. Antes vivía en el tablero y también como renglón de texto: algo que se queda
+  deja de ser una oportunidad y pasa a ser parte del mueble.
 
 ### Notas de voz
 

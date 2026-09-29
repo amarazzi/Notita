@@ -133,14 +133,15 @@ def abrir_elegir(chat_id: int, ref: date | None = None) -> None:
     ref = ref or hoy()
     secciones = tablero.repartir(db.pendientes(chat_id), ref)
     numeradas = []
-    for clave, _ in tablero._TITULOS(ref):
+    for clave in tablero.ORDEN:
         numeradas.extend(secciones.get(clave) or [])
+    # Las compras sin fecha no se listan en el tablero, pero igual se pueden cambiar:
+    # el «⋯» es la puerta a TODO, así que nada queda inaccesible.
+    numeradas += [r for r in db.pendientes(chat_id, compra=True) if not r["due_date"]]
     if not numeradas:
         _publicar_temporal(chat_id, "No hay nada para cambiar ✨",
                            [[{"text": "✖️ Cerrar", "callback_data": cb.armar("c")}]], "menu")
         return
-    # Las compras sin fecha no están en el tablero, pero igual se pueden cambiar.
-    numeradas += [r for r in db.pendientes(chat_id, compra=True) if not r["due_date"]]
     filas = [[{"text": f"{i}. {views.recortar(views.titulo(row), 28)}",
                "callback_data": cb.armar("m", row["id"])}]
              for i, row in enumerate(numeradas[:30], start=1)]

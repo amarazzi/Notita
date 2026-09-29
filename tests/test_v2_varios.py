@@ -268,7 +268,9 @@ def test_sin_gemini_el_tablero_los_botones_y_el_parte(enviados, monkeypatch):
 
     tid = db.crear_tarea(CHAT, "sacar la basura", due=hoy())
     texto, filas = tablero.render(CHAT)
-    assert "Sacar la basura" in " ".join(b["text"] for fila in filas for b in fila)
+    # Los botones del tablero son números; el texto es el que nombra las cosas.
+    assert "Sacar la basura" in texto
+    assert "✅ 1" in [b["text"] for fila in filas for b in fila]
 
     handlers.handle_update(click(cb.armar("ok", tid)))
     assert db.obtener(tid)["estado"] == "hecha"

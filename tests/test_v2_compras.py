@@ -72,7 +72,7 @@ def test_una_compra_sin_fecha_no_se_lista_en_el_tablero(enviados, monkeypatch):
 
     assert not en_alguna_seccion("leche"), "no va en las secciones de días"
     texto, filas = tablero.render(CHAT)
-    assert "🛒 <b>COMPRAS</b> · 1" in texto
+    assert "leche" not in texto.lower(), "tampoco se lista en el texto"
     assert any("🛒 Compras · 1" == b["text"] for fila in filas for b in fila)
     # Pero en la lista de compras sí.
     enviados.clear()
@@ -88,9 +88,9 @@ def test_una_compra_con_fecha_va_en_su_dia_con_el_carrito(enviados, monkeypatch)
 
     manana = secciones_del_tablero()["manana"]
     assert [r["texto"] for r in manana] == ["Falta carbón"]
-    _, filas = tablero.render(CHAT)
-    etiquetas = [b["text"] for fila in filas for b in fila]
-    assert any("🛒" in e and "Falta carbón" in e for e in etiquetas), etiquetas
+    texto, filas = tablero.render(CHAT)
+    assert "🛒 Falta carbón" in texto, "en el texto, con el carrito"
+    assert "✅ 1" in [b["text"] for fila in filas for b in fila]
     # Y también está en la lista de compras, con la fecha.
     enviados.clear()
     menus.abrir_compras(CHAT)
@@ -647,9 +647,9 @@ def test_el_contador_de_compras_da_lo_mismo_que_la_lista(enviados):
     enviados.clear()
     menus.abrir_compras(CHAT)
 
-    assert "🛒 <b>COMPRAS</b> · 3" in texto
     assert any(b["text"] == "🛒 Compras · 3" for fila in filas for b in fila)
     assert "🛒 <b>Compras</b> · 3" in textos(enviados)[0]
+    assert "COMPRAS" not in texto, "el contador vive en el botón, no en el texto"
     # Y el carbón sigue apareciendo una sola vez en las secciones.
     assert [r["texto"] for r in secciones_del_tablero()["manana"]] == ["Falta carbón"]
 
@@ -658,7 +658,6 @@ def test_con_todas_las_compras_fechadas_el_boton_igual_aparece(enviados):
     """Antes desaparecía el acceso a /compras aunque hubiera cosas etiquetadas."""
     db.crear_tarea(CHAT, "Falta carbón", compra=True, due=MANANA)
 
-    texto, filas = tablero.render(CHAT)
+    _, filas = tablero.render(CHAT)
 
-    assert "🛒 <b>COMPRAS</b> · 1" in texto
     assert any("🛒 Compras · 1" == b["text"] for fila in filas for b in fila)

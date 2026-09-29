@@ -44,38 +44,38 @@ ninguna modificación se ejecuta sin que alguien toque un botón
 El **tablero** es un mensaje fijado en el grupo que se edita en el lugar:
 
 ```
-📋 La casa · lunes 28/9
-
-⚠️ VENCIDAS · 1
-1. 🧽 Agarrar sábanas y acolchado · ayer, dom 27
-
-HOY · lun 28 · 2
+📋 La casa · lun 28/9
+⚠️ Vencidas
+1. 🧽 Agarrar sábanas y acolchado · venció el sáb 26/9
+Hoy
 2. 🐾 Llevar a Milo al veterinario · 🕕 18:00 · Barbu
 3. 🛒 Falta carbón para el asado
+Mañana · mar 29
+4. 💸 Pagar el ABL
+Esta semana: 📄 Ir a la sede · vie 2/10
+Algún día: 4
 
-ESTA SEMANA · 3 ›
-🛒 COMPRAS · 4 ›
-
-[ ✅ 1. Agarrar sábanas y acolchado ]
-[ ✅ 2. Llevar a Milo al veterinario ]
-[ ✅ 3. 🛒 Falta carbón para el asado ]
-[ 📂 Esta semana · 3 ]  [ 🛒 Compras · 4 ]
-[ ⋯ Cambiar algo ]
+[ ✅ 1 ] [ ✅ 2 ] [ ✅ 3 ] [ ✅ 4 ]
+[ 🛒 Compras · 5 ] [ ⋯ Cambiar algo ]
 ```
+
+**El texto es para leer; los botones, sólo para hacer.** Cada cosa aparece una vez: el
+número ata el renglón con su `✅`, y las secciones lejanas son una línea de texto sin
+botón. Todo —incluso lo que no tiene número— se puede cambiar desde **⋯ Cambiar algo**.
+
 
 Hay **una sola clase de cosa**. La 🛒 es una etiqueta para filtrar: lo que tiene fecha
 va en su día —con carrito o sin él— y lo que tiene 🛒 **y no tiene fecha** no se lista
 una por una. El botón cuenta **todo lo etiquetado**, igual que `/compras`.
 
-- **✅** la da por hecha de un toque. Sin mensajes nuevos en el grupo. Se lleva la fila
-  entera porque es lo que más se toca: blanco grande y título legible.
-- El **número** ata cada botón con su renglón: Telegram pone los botones todos juntos
-  abajo, fuera de las secciones.
-- **⋯ Cambiar algo** lista las cosas para elegir cuál: mover de día, quién la hace,
-  renombrar, marcarla como compra 🛒, borrarla o agregarla al calendario.
-- Si tachás algo sin querer, aparece **↩️ Deshacer** en el tablero por 10 minutos.
-- Cada tarea aparece **en una sola sección**. Las colapsadas se abren en un mensaje
-  aparte, así lo que toca uno no le cambia la pantalla al otro.
+- **✅** la da por hecha de un toque, sin mensajes nuevos en el grupo.
+- **⋯ Cambiar algo** lista **todas** las cosas para elegir cuál: mover de día, quién la
+  hace, renombrar, marcarla como compra 🛒, borrarla o agregarla al calendario.
+- Si tachás algo sin querer, aparece **↩️ Deshacer** en el tablero por 5 minutos.
+- Se numeran las vencidas, las de hoy y las de mañana. Si son más de diez, mañana se
+  queda sin números —se sigue leyendo— y se cambia desde el `⋯`.
+- Los menús se abren en un mensaje **aparte**, así lo que toca uno no le cambia la
+  pantalla al otro.
 
 ### Pedir por texto: propone y vos confirmás
 
@@ -593,7 +593,7 @@ Tres documentos, según qué necesites:
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt pytest
 cp .env.example .env
-pytest                 # 545 tests, sin red ni API keys
+pytest                 # 547 tests, sin red ni API keys
 python app.py          # http://localhost:5000
 ```
 

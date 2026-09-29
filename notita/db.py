@@ -764,8 +764,14 @@ def limpiar_propuestas() -> int:
         return cur.rowcount or 0
 
 
+# Cinco minutos: el botón vive en el tablero, y algo que se queda ahí deja de ser una
+# oportunidad y pasa a ser parte del mueble. Si en cinco minutos no te diste cuenta de
+# que tachaste la equivocada, la vas a anotar de nuevo igual.
+TTL_DESHACER = 5
+
+
 def guardar_deshacer(chat_id: int, item_ids: list[int], accion: str = "crear",
-                     minutos: int = 10) -> int:
+                     minutos: int = TTL_DESHACER) -> int:
     from datetime import timedelta
 
     with conn() as c:

@@ -2,9 +2,12 @@
 
 Reglas que valen la pena tener a mano:
 
-- Cada tarea aparece UNA sola vez. Las secciones tienen precedencia y cada tarea cae
-  en la primera que le corresponde (en v1 lo del lunes salía en «mañana» y otra vez en
-  «la semana que viene»).
+- **El texto es para leer; los botones, sólo para hacer.** Cada cosa aparece UNA vez.
+  El tablero llegó a mostrar las secciones como texto Y como botón, y el deshacer como
+  renglón Y como botón: el doble de alto para la misma información, y las tareas —lo
+  único que importa— quedaban abajo, escondidas.
+- Cada tarea cae en UNA sección: tienen precedencia (en v1 lo del lunes salía en
+  «mañana» y otra vez en «la semana que viene»).
 - El tablero NUNCA navega: los menús son mensajes nuevos. Son dos personas mirando la
   misma pantalla; si uno abriera un submenú acá, al otro le cambiaría lo que ve.
 - Se edita al final de cada update, siempre. Tuvo un debounce de 3 segundos para no
@@ -24,91 +27,116 @@ from .dates import ahora, de_iso, domingo_de_la_semana, hoy
 
 log = logging.getLogger("notita.tablero")
 
-# El ✅ se lleva la fila entera: es lo que más se toca y un blanco grande evita
-# tacharle la tarea equivocada al otro. Con media fila, Telegram cortaba los títulos
-# al medio («Tr...laves Allen»).
-LARGO_BOTON = 34
-MAX_BOTONES = 40        # antes de colapsar «Mañana» también
-MAX_EN_SECCION = 3      # más que esto y la sección de vencidas va colapsada
-# Tope duro por sección: Telegram no acepta más de 100 botones, y un teclado de 60
-# filas es imposible de usar igual. El resto se ve tocando la sección.
-MAX_POR_SECCION = 25
+LARGO_BOTON = 34        # lo que entra en un botón de fila completa
+POR_FILA = 5            # cuántos ✅ por fila
+# Más números que esto y el tablero se vuelve un tablero de control. Cuando se pasa,
+# se numeran las vencidas y las de hoy; el resto se maneja por «⋯ Cambiar algo», que
+# lista todo.
+MAX_NUMERADAS = 10
+# En una línea de resumen entran los títulos si son pocos; si no, sólo el número.
+MAX_EN_RESUMEN = 2
 
 
 def render(chat_id: int, ref: date | None = None) -> tuple[str, list]:
     """El texto y el teclado del tablero. Sin efectos: se puede testear sola."""
     ref = ref or hoy()
     cosas = db.pendientes(chat_id)
-    # Lo único especial de la etiqueta 🛒, y es de visualización: una compra SIN
-    # fecha no se lista una por una. El contador, en cambio, cuenta TODO lo
-    # etiquetado: tiene que dar lo mismo que /compras, o son dos números para lo
-    # mismo y ninguno se cree.
+    # La etiqueta 🛒 cuenta TODO lo etiquetado: tiene que dar lo mismo que /compras, o
+    # son dos números para lo mismo y ninguno se cree.
     compras = [r for r in cosas if r["compra"]]
     secciones = repartir(cosas, ref)
 
-    lineas = [f"📋 <b>La casa</b> · {views.dia_largo(ref)}"]
-    filas: list[list[dict]] = []
+    numerables = _numerables(secciones)
+    numeros = {r["id"]: i for i, r in enumerate(numerables, start=1)}
 
-    expandidas = {"hoy", "manana"}
-    if sum(len(s) for s in secciones.values()) and _cuantos_botones(secciones, expandidas) > MAX_BOTONES:
-        expandidas = {"hoy"}     # con la casa desbordada, mañana también se colapsa
-    if len(secciones["vencidas"]) <= MAX_EN_SECCION:
-        expandidas.add("vencidas")
+    lineas = [f"📋 <b>La casa</b> · {views.dia_corto(ref, con_mes=True)}"]
+    lineas += _texto_de_los_dias(secciones, numeros, ref)
+    lineas += _texto_de_las_otras(secciones, ref)
 
-    numero = 0
-    atajos: list[dict] = []
-    for clave, titulo in _TITULOS(ref):
-        rows = secciones[clave]
-        if not rows:
-            continue
-        if clave in expandidas:
-            lineas.append(f"\n{titulo} · {len(rows)}")
-            for r in rows[:MAX_POR_SECCION]:
-                numero += 1
-                # El número es lo que ata cada renglón con su botón.
-                lineas.append(f"<b>{numero}.</b> "
-                              + views.linea(r, ref, con_fecha=clave == "vencidas"))
-                filas.extend(_fila_tarea(r, ref, numero))
-            if len(rows) > MAX_POR_SECCION:
-                restan = len(rows) - MAX_POR_SECCION
-                lineas.append(f"<i>y {restan} más ›</i>")
-                filas.append([{"text": f"› ver las otras {restan}",
-                               "callback_data": cb.armar("sec", clave)}])
-        else:
-            lineas.append(f"\n{titulo} · {len(rows)} ›")
-            atajos.append({"text": f"{_icono(clave)} {_nombre_corto(clave)} · {len(rows)}",
-                           "callback_data": cb.armar("sec", clave)})
-
-    if compras:
-        lineas.append(f"\n🛒 <b>COMPRAS</b> · {len(compras)} ›")
-        atajos.append({"text": f"🛒 Compras · {len(compras)}",
-                       "callback_data": cb.armar("sup")})
-
-    # De a dos por fila: son etiquetas cortas y apiladas quedaban como una pila de
-    # losas grises.
-    for i in range(0, len(atajos), 2):
-        filas.append(atajos[i:i + 2])
-
-    if not cosas:
-        lineas.append("\nNo hay nada pendiente. Qué lujo ✨")
-
-    # El botón del deshacer va corto para que Telegram no lo corte («↩️ Desha…cómoda…»);
-    # QUÉ se deshace se dice en el texto, donde hay lugar de sobra.
-    acciones = []
-    if cosas:
-        acciones.append({"text": "⋯ Cambiar algo", "callback_data": cb.armar("elegir")})
+    filas = _botones_de_tachar(numerables, numeros)
+    filas.append([
+        {"text": f"🛒 Compras · {len(compras)}", "callback_data": cb.armar("sup")},
+        {"text": "⋯ Cambiar algo", "callback_data": cb.armar("elegir")},
+    ])
+    # El deshacer va en su propia fila y sólo un rato: es una oportunidad, no una
+    # parte del tablero. Y no se repite como renglón de texto.
     deshacer = db.ultimo_deshacer(chat_id)
     if deshacer:
-        lineas.append(f"\n<i>↩️ Se puede deshacer{_que_deshace(deshacer)}</i>")
-        acciones.append({"text": "↩️ Deshacer",
-                         "callback_data": cb.armar("u", deshacer["id"])})
-    if acciones:
-        filas.append(acciones)
+        filas.append([{"text": f"↩️ Deshacer{_que_deshace(deshacer)}",
+                       "callback_data": cb.armar("u", deshacer["id"])}])
 
     texto = "\n".join(lineas)
     if len(texto) > telegram.LARGO_MAXIMO:
         texto = texto[:telegram.LARGO_MAXIMO] + "\n<i>…</i>"
     return texto, filas
+
+
+def _numerables(secciones: dict) -> list:
+    """Las cosas que llevan número y ✅: las vencidas, las de hoy y las de mañana.
+
+    Si son demasiadas, mañana se queda sin números —sigue listada para leer— y se
+    maneja por «⋯ Cambiar algo», que lista todo.
+    """
+    con_manana = secciones["vencidas"] + secciones["hoy"] + secciones["manana"]
+    if len(con_manana) <= MAX_NUMERADAS:
+        return con_manana
+    return secciones["vencidas"] + secciones["hoy"]
+
+
+def _texto_de_los_dias(secciones: dict, numeros: dict, ref: date) -> list[str]:
+    """Vencidas, hoy y mañana: listadas, porque son lo que hay que hacer."""
+    lineas = []
+    if secciones["vencidas"]:
+        lineas.append("⚠️ <b>Vencidas</b>")
+        lineas += [_renglon(r, numeros, ref, con_fecha=True)
+                   for r in secciones["vencidas"]]
+    if secciones["hoy"]:
+        lineas.append("<b>Hoy</b>")     # la fecha ya está en el encabezado
+        lineas += [_renglon(r, numeros, ref) for r in secciones["hoy"]]
+    if secciones["manana"]:
+        lineas.append(f"<b>Mañana</b> · {views.dia_corto(ref + timedelta(days=1))}")
+        lineas += [_renglon(r, numeros, ref) for r in secciones["manana"]]
+    if not secciones["hoy"] and not secciones["manana"]:
+        lineas.append("Nada para hoy ni mañana ✨")
+    return lineas
+
+
+def _renglon(row, numeros: dict, ref: date, con_fecha: bool = False) -> str:
+    """«3. 🧽 Limpiar la heladera · 🕕 10:00 · Axel»."""
+    numero = numeros.get(row["id"])
+    cabeza = f"<b>{numero}.</b> " if numero else "· "
+    return cabeza + views.linea(row, ref, con_fecha=con_fecha)
+
+
+def _texto_de_las_otras(secciones: dict, ref: date) -> list[str]:
+    """Una línea por sección, sin botón. Con pocas cosas, se nombran.
+
+    Un número solo («Más adelante: 5») no dice nada; el nombre de la única cosa que
+    hay, sí. Pero cinco títulos tapan lo de hoy, así que ahí sólo va el número.
+    """
+    lineas = []
+    for clave in ("semana", "adelante", "algun_dia"):
+        rows = secciones[clave]
+        if not rows:
+            continue
+        nombre = _nombre_corto(clave)
+        if len(rows) <= MAX_EN_RESUMEN:
+            detalle = ", ".join(views.linea(r, ref, con_fecha=clave != "algun_dia")
+                                for r in rows)
+            lineas.append(f"<b>{nombre}:</b> {detalle}")
+        else:
+            lineas.append(f"<b>{nombre}:</b> {len(rows)}")
+    return lineas
+
+
+def _botones_de_tachar(numerables: list, numeros: dict) -> list[list[dict]]:
+    """Sólo el número: el texto ya está en el mensaje, arriba."""
+    filas = []
+    for i in range(0, len(numerables), POR_FILA):
+        filas.append([{"text": f"✅ {numeros[r['id']]}",
+                       "callback_data": cb.armar("ok", r["id"])}
+                      for r in numerables[i:i + POR_FILA]])
+    return filas
 
 
 def repartir(cosas, ref: date) -> dict[str, list]:
@@ -143,16 +171,10 @@ def repartir(cosas, ref: date) -> dict[str, list]:
     return secciones
 
 
-def _TITULOS(ref: date) -> list[tuple[str, str]]:
-    manana = ref + timedelta(days=1)
-    return [
-        ("vencidas", "⚠️ <b>VENCIDAS</b>"),
-        ("hoy", f"<b>HOY</b> · {views.dia_corto(ref)}"),
-        ("manana", f"<b>MAÑANA</b> · {views.dia_corto(manana)}"),
-        ("semana", "<b>ESTA SEMANA</b>"),
-        ("adelante", "<b>MÁS ADELANTE</b>"),
-        ("algun_dia", "<b>ALGÚN DÍA</b>"),
-    ]
+
+# El orden en que se muestran y se numeran. Lo usa también el menú «⋯», que lista
+# TODO: ninguna cosa queda inaccesible por no tener botón propio en el tablero.
+ORDEN = ("vencidas", "hoy", "manana", "semana", "adelante", "algun_dia")
 
 
 def _nombre_corto(clave: str) -> str:
@@ -161,32 +183,20 @@ def _nombre_corto(clave: str) -> str:
             "algun_dia": "Algún día"}[clave]
 
 
-def _icono(clave: str) -> str:
-    return "⚠️" if clave == "vencidas" else "📂"
-
-
-
-
-
 
 def _que_deshace(deshacer: dict) -> str:
-    """«↩️ Deshacer: Agarrar sábanas», para saber qué se va a revertir."""
+    """«↩️ Deshacer: Agarrar sábanas», para saber qué se va a revertir.
+
+    Corto: el botón ocupa la fila entera, pero Telegram igual corta lo que no entra.
+    """
     if len(deshacer["item_ids"]) != 1:
         return f" ({len(deshacer['item_ids'])})"
     row = db.obtener(deshacer["item_ids"][0])
-    return f": {views.titulo_html(row)}" if row is not None else ""
+    if row is None:
+        return ""
+    return f": {views.recortar(views.titulo(row), 20)}"
 
 
-def _cuantos_botones(secciones: dict, expandidas: set[str]) -> int:
-    sueltos = sum(len(rows) for clave, rows in secciones.items() if clave in expandidas)
-    colapsadas = sum(1 for clave, rows in secciones.items()
-                     if rows and clave not in expandidas)
-    return sueltos + colapsadas + 1      # +1 por el súper
-
-
-def _fila_tarea(row, ref: date, numero: int | None = None) -> list[list[dict]]:
-    return [[{"text": f"✅ {etiqueta(row, ref, numero=numero)}",
-              "callback_data": cb.armar("ok", row["id"])}]]
 
 
 def etiqueta(row, ref: date, largo: int = LARGO_BOTON,

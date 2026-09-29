@@ -7,7 +7,7 @@ from datetime import date, timedelta
 
 import pytest
 
-from notita import cb, db, handlers, menus, tablero, telegram
+from notita import cb, db, handlers, menus, tablero, telegram, views
 from notita.dates import hoy
 
 from .conftest import CHAT
@@ -79,17 +79,6 @@ def test_las_secciones_van_en_orden(enviados):
     assert posiciones == sorted(posiciones)
 
 
-def test_hoy_y_manana_van_expandidas_y_el_resto_colapsado(enviados):
-    sembrar(LUNES)
-    texto, filas = tablero.render(CHAT, LUNES)
-
-    etiquetas = [b["text"] for fila in filas for b in fila]
-    assert any("Sacar la basura" in e for e in etiquetas)       # hoy, con botón
-    assert any("Llamar al plomero" in e for e in etiquetas)     # mañana, con botón
-    assert not any("Renovar el dni" in e for e in etiquetas)    # colapsada
-    assert "Más adelante · 1" in " ".join(etiquetas)
-
-
 # --------------------------------------------------------------------------
 # Límites de Telegram
 # --------------------------------------------------------------------------
@@ -105,38 +94,16 @@ def test_con_sesenta_tareas_no_se_pasa_de_los_limites(enviados):
     assert cantidad <= 100, f"Telegram no acepta {cantidad} botones"
 
 
-def test_con_la_casa_desbordada_manana_tambien_se_colapsa(enviados):
-    for i in range(45):
-        db.crear_tarea(CHAT, f"cosa {i}", due=hoy())
-    for i in range(10):
-        db.crear_tarea(CHAT, f"otra {i}", due=hoy() + timedelta(days=1))
-
-    _, filas = tablero.render(CHAT)
-    etiquetas = [b["text"] for fila in filas for b in fila]
-    assert any(e.startswith("📂 Mañana") for e in etiquetas)
-
-
-def test_una_seccion_gigante_se_corta_y_ofrece_el_resto(enviados):
-    """Con una fila por tarea, 45 filas son imposibles de usar (y Telegram topa en 100)."""
-    for i in range(45):
-        db.crear_tarea(CHAT, f"cosa {i}", due=hoy())
-
-    texto, filas = tablero.render(CHAT)
-
-    vistos = [b for fila in filas for b in fila if b["text"].startswith("✅")]
-    assert len(vistos) == tablero.MAX_POR_SECCION
-    assert "y 20 más ›" in texto
-    assert any("ver las otras 20" in b["text"] for fila in filas for b in fila)
-
-
 def test_los_titulos_se_cortan_en_un_limite_de_palabra(enviados):
-    db.crear_tarea(CHAT, "llamar al ejército de salvación para que se lleven la cama",
-                   due=hoy())
-    _, filas = tablero.render(CHAT)
-    etiqueta = filas[0][0]["text"]
+    """Los usa el menú «⋯» y el parte; en el tablero los botones son números."""
+    tid = db.crear_tarea(
+        CHAT, "Llamar al ejército de salvación para que se lleve la cama de una plaza",
+        due=hoy())
+
+    etiqueta = tablero.etiqueta(db.obtener(tid), hoy())
 
     assert len(etiqueta) <= tablero.LARGO_BOTON + 4
-    assert etiqueta.endswith("…")
+    assert etiqueta.endswith("…"), etiqueta
     assert not etiqueta.rstrip("…").endswith(" ")
 
 
@@ -238,7 +205,7 @@ def test_cada_toque_refresca_el_tablero_al_instante(enviados):
     assert len(ediciones) == 2, "una por toque, sin posponer nada"
     # Ya no está en la lista (abajo aparece como «se puede deshacer»).
     assert "1.</b> 📌 Sacar la basura" not in ediciones[0]
-    assert "No hay nada pendiente" in ediciones[1]
+    assert "Nada para hoy ni mañana" in ediciones[1]
 
 
 def test_si_la_edicion_falla_queda_sucio_y_el_cron_lo_flushea(enviados, monkeypatch):
@@ -359,58 +326,10 @@ def test_un_boton_de_v1_se_reconoce(enviados):
 # Lo que se veía mal en el grupo de verdad
 # --------------------------------------------------------------------------
 
-def test_cada_boton_se_puede_encontrar_en_el_texto(enviados):
-    """Telegram pone TODOS los botones juntos abajo, fuera de las secciones.
-
-    Sin un número que los ate al texto, con «⚠️ VENCIDAS» y «HOY» arriba y cuatro
-    botones abajo no había forma de saber cuál era cuál.
-    """
-    db.crear_tarea(CHAT, "agarrar sábanas y acolchado", due=LUNES - timedelta(days=2))
-    db.crear_tarea(CHAT, "traer llaves Allen", due=LUNES, hora="10:00", responsable="axel")
-    db.crear_tarea(CHAT, "llamar al ejército de salvación para la cama", due=LUNES)
-
-    texto, filas = tablero.render(CHAT, LUNES)
-
-    etiquetas = [b["text"] for fila in filas for b in fila if b["text"].startswith("✅")]
-    assert len(etiquetas) == 3
-    for i, etiqueta in enumerate(etiquetas, start=1):
-        assert etiqueta.startswith(f"✅ {i}. "), etiqueta
-        assert f"<b>{i}.</b>" in texto, f"falta el renglón {i}"
-
-
-def test_las_secciones_expandidas_muestran_sus_tareas(enviados):
-    """Antes el encabezado quedaba solo, sin nada abajo."""
-    db.crear_tarea(CHAT, "agarrar sábanas y acolchado", due=LUNES)
-    texto, _ = tablero.render(CHAT, LUNES)
-
-    assert "Agarrar sábanas y acolchado" in texto
-    assert "<b>HOY</b> · lun 28 · 1" in texto, "con el contador"
-
-
 def test_las_vencidas_dicen_cuando_vencieron(enviados):
     db.crear_tarea(CHAT, "pagar el ABL", due=LUNES - timedelta(days=2))
     texto, _ = tablero.render(CHAT, LUNES)
     assert "venció el sáb 26/9" in texto
-
-
-def test_el_visto_se_lleva_la_fila_entera(enviados):
-    """Es lo que más se toca: blanco grande y título legible.
-
-    Con media fila (compartida con el ⋯), Telegram cortaba al medio: se veía
-    «✅ 🕕 10:00 · Tr...laves Allen · Axel».
-    """
-    db.crear_tarea(CHAT, "traer las llaves Allen del departamento",
-                   due=LUNES, hora="10:00", responsable="axel")
-    texto, filas = tablero.render(CHAT, LUNES)
-
-    assert len(filas[0]) == 1, "el ✅ va solo en su fila"
-    assert filas[0][0]["text"].startswith("✅ 1. Traer las llaves Allen")
-    # La hora y el responsable se ven en el renglón del texto.
-    assert "🕕 10:00" in texto and "Axel" in texto
-
-    # Y el ⋯ de cada tarea entra por un botón al final.
-    etiquetas = [b["text"] for fila in filas for b in fila]
-    assert "⋯ Cambiar algo" in etiquetas
 
 
 def test_publicar_dos_veces_seguidas_no_deja_dos_tableros(enviados, casa_nueva):
@@ -453,9 +372,10 @@ def test_despues_de_tachar_el_tablero_ofrece_deshacer(enviados):
 
     texto, filas = tablero.render(CHAT)
     etiquetas = [b["text"] for fila in filas for b in fila]
-    assert "↩️ Deshacer" in etiquetas
-    # Qué se deshace va en el texto: en el botón, Telegram lo cortaba al medio.
-    assert "Se puede deshacer: Agarrar sábanas" in texto
+    assert any(e.startswith("↩️ Deshacer") for e in etiquetas), etiquetas
+    # Y NO se repite como renglón del mensaje: el texto es para leer, el botón para
+    # hacer.
+    assert "deshacer" not in texto.lower()
 
 
 def test_el_deshacer_del_tablero_recupera_la_tarea(enviados):
@@ -523,38 +443,6 @@ def test_elegir_y_abrir_el_menu_reemplaza_la_lista(enviados):
     assert [e["metodo"] for e in enviados] == ["answerCallbackQuery", "editMessageText"]
 
 
-def test_ningun_boton_del_tablero_se_corta(enviados):
-    """Telegram corta al medio lo que no entra: se veía «↩️ Desha…cómoda…».
-
-    Los botones que comparten fila tienen media pantalla, así que van cortos; lo
-    largo (qué se deshace, la hora, el responsable) va en el texto, que tiene lugar.
-    """
-    tid = db.crear_tarea(CHAT, "comprar cómoda para la habitación", due=hoy())
-    db.crear_tarea(CHAT, "otra cosa", due=hoy())
-    db.crear_tarea(CHAT, "leche", compra=True, categoria="compras")
-    handlers.handle_update(click(cb.armar("ok", tid)))
-
-    texto, filas = tablero.render(CHAT)
-
-    for fila in filas:
-        largo_maximo = 34 if len(fila) == 1 else 20
-        for boton in fila:
-            assert len(boton["text"]) <= largo_maximo, boton["text"]
-    assert "Se puede deshacer: Comprar cómoda para la habitación" in texto
-
-
-def test_los_atajos_van_de_a_dos_por_fila(enviados):
-    """Apilados quedaban como una pila de losas grises."""
-    db.crear_tarea(CHAT, "pintar el balcón")                       # algún día
-    db.crear_tarea(CHAT, "leche", compra=True, categoria="compras")
-
-    _, filas = tablero.render(CHAT)
-
-    atajos = [f for f in filas if any("Compras" in b["text"] for b in f)][0]
-    assert len(atajos) == 2
-    assert [b["text"] for b in atajos] == ["📂 Algún día · 1", "🛒 Compras · 1"]
-
-
 def test_el_tablero_vacio_con_algo_para_deshacer(enviados):
     """El «No hay nada pendiente» desaparecía si quedaba un deshacer vivo."""
     tid = db.crear_tarea(CHAT, "lo único que había", due=hoy())
@@ -562,6 +450,149 @@ def test_el_tablero_vacio_con_algo_para_deshacer(enviados):
 
     texto, filas = tablero.render(CHAT)
 
-    assert "No hay nada pendiente" in texto
-    assert "Se puede deshacer: Lo único que había" in texto
-    assert [b["text"] for fila in filas for b in fila] == ["↩️ Deshacer"]
+    assert "Nada para hoy ni mañana" in texto
+    etiquetas = [b["text"] for fila in filas for b in fila]
+    assert etiquetas == ["🛒 Compras · 0", "⋯ Cambiar algo",
+                         "↩️ Deshacer: Lo único que había"]
+
+
+# --------------------------------------------------------------------------
+# El rediseño: el texto es para leer, los botones sólo para hacer
+# --------------------------------------------------------------------------
+
+def test_el_tablero_vacio_tiene_exactamente_dos_botones(enviados):
+    texto, filas = tablero.render(CHAT)
+
+    etiquetas = [b["text"] for fila in filas for b in fila]
+    assert etiquetas == ["🛒 Compras · 0", "⋯ Cambiar algo"]
+    assert texto.splitlines() == ["📋 <b>La casa</b> · " + views.dia_corto(hoy(), con_mes=True),
+                                  "Nada para hoy ni mañana ✨"]
+
+
+def test_ninguna_seccion_aparece_como_boton(enviados):
+    """Estaban como texto Y como botón: el doble de alto para lo mismo."""
+    db.crear_tarea(CHAT, "Pagar el ABL", due=hoy() + timedelta(days=3))
+    db.crear_tarea(CHAT, "Ir a la sede", due=hoy() + timedelta(days=20))
+    db.crear_tarea(CHAT, "Pintar el balcón")
+
+    texto, filas = tablero.render(CHAT)
+
+    etiquetas = [b["text"] for fila in filas for b in fila]
+    for nombre in ("Esta semana", "Más adelante", "Algún día", "Vencidas", "Hoy",
+                   "Mañana"):
+        assert not any(nombre in e for e in etiquetas), f"{nombre} sigue siendo botón"
+    # Pero en el texto sí están, que es donde se leen.
+    assert "Esta semana:" in texto and "Algún día:" in texto
+    assert "callback_data" not in texto
+    assert not any(b["callback_data"].startswith("2|sec")
+                   for fila in filas for b in fila)
+
+
+def test_nada_se_repite_entre_el_mensaje_y_los_botones(enviados):
+    import re
+
+    db.crear_tarea(CHAT, "Traer las llaves Allen", due=hoy(), hora="10:00")
+    db.crear_tarea(CHAT, "Llevar a Milo al veterinario", due=hoy() + timedelta(days=1))
+    db.crear_tarea(CHAT, "Pagar el ABL", due=hoy() + timedelta(days=3))
+    db.crear_tarea(CHAT, "Falta leche", compra=True)
+
+    texto, filas = tablero.render(CHAT)
+    plano = re.sub(r"</?[bi]>", "", texto)
+
+    for fila in filas:
+        for boton in fila:
+            etiqueta = boton["text"]
+            if etiqueta.startswith("✅"):
+                continue            # es un número, no un texto
+            assert etiqueta not in plano, f"«{etiqueta}» está en el mensaje y en un botón"
+
+
+def test_los_vistos_van_de_a_cinco_por_fila(enviados):
+    for i in range(7):
+        db.crear_tarea(CHAT, f"Cosa {i}", due=hoy())
+
+    _, filas = tablero.render(CHAT)
+
+    vistos = [fila for fila in filas if fila[0]["text"].startswith("✅")]
+    assert [len(f) for f in vistos] == [5, 2]
+    assert [b["text"] for b in vistos[0]] == ["✅ 1", "✅ 2", "✅ 3", "✅ 4", "✅ 5"]
+
+
+def test_con_muchas_cosas_manana_se_queda_sin_numeros(enviados):
+    """Más de 10 números es un tablero de control. Mañana se lee igual y se cambia
+
+    desde el «⋯», que lista todo.
+    """
+    for i in range(6):
+        db.crear_tarea(CHAT, f"De hoy {i}", due=hoy())
+    for i in range(6):
+        db.crear_tarea(CHAT, f"De mañana {i}", due=hoy() + timedelta(days=1))
+
+    texto, filas = tablero.render(CHAT)
+
+    vistos = [b["text"] for fila in filas for b in fila if b["text"].startswith("✅")]
+    assert len(vistos) == 6, "sólo las de hoy"
+    assert "De mañana 0" in texto, "pero se siguen leyendo"
+    assert "<b>7.</b>" not in texto
+
+
+def test_una_seccion_con_pocas_cosas_las_nombra(enviados):
+    db.crear_tarea(CHAT, "Ir a la sede", due=hoy() + timedelta(days=20))
+
+    texto, _ = tablero.render(CHAT)
+
+    assert "Más adelante:" in texto and "Ir a la sede" in texto
+
+
+def test_una_seccion_con_muchas_solo_dice_el_numero(enviados):
+    for i in range(5):
+        db.crear_tarea(CHAT, f"Cosa {i}", due=hoy() + timedelta(days=20 + i))
+
+    texto, _ = tablero.render(CHAT)
+
+    assert "<b>Más adelante:</b> 5" in texto
+    assert "Cosa 0" not in texto
+
+
+def test_las_secciones_vacias_no_se_muestran(enviados):
+    db.crear_tarea(CHAT, "Sacar la basura", due=hoy())
+
+    texto, _ = tablero.render(CHAT)
+
+    for nombre in ("Esta semana", "Más adelante", "Algún día", "Vencidas", "Mañana"):
+        assert nombre not in texto
+    assert "" not in texto.splitlines(), "ni renglones vacíos"
+
+
+def test_el_deshacer_se_va_a_los_cinco_minutos(enviados, monkeypatch):
+    from notita import dates
+
+    tid = db.crear_tarea(CHAT, "Sacar la basura", due=hoy())
+    handlers.handle_update(click(cb.armar("ok", tid)))
+    etiquetas = [b["text"] for fila in tablero.render(CHAT)[1] for b in fila]
+    assert any(e.startswith("↩️ Deshacer") for e in etiquetas)
+
+    despues = dates.ahora() + timedelta(minutes=5, seconds=1)
+    monkeypatch.setattr(dates, "ahora", lambda: despues)
+    monkeypatch.setattr(db, "ahora", lambda: despues)
+
+    etiquetas = [b["text"] for fila in tablero.render(CHAT)[1] for b in fila]
+    assert not any("Deshacer" in e for e in etiquetas)
+    assert etiquetas == ["🛒 Compras · 0", "⋯ Cambiar algo"]
+
+
+def test_el_menu_cambiar_algo_lista_todo_lo_que_no_tiene_boton(enviados):
+    """Se sacaron los botones de sección: nada puede quedar inaccesible."""
+    db.crear_tarea(CHAT, "Pagar el ABL", due=hoy() + timedelta(days=3))
+    db.crear_tarea(CHAT, "Ir a la sede", due=hoy() + timedelta(days=20))
+    db.crear_tarea(CHAT, "Pintar el balcón")
+    db.crear_tarea(CHAT, "Falta leche", compra=True)
+    enviados.clear()
+
+    handlers.handle_update(click(cb.armar("elegir"), message_id=30))
+
+    etiquetas = [b["text"] for e in enviados if e["metodo"] == "sendMessage"
+                 for fila in (e.get("reply_markup") or {}).get("inline_keyboard", [])
+                 for b in fila]
+    for cosa in ("Pagar el ABL", "Ir a la sede", "Pintar el balcón", "Falta leche"):
+        assert any(cosa in e for e in etiquetas), f"{cosa} quedó inaccesible"

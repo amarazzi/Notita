@@ -44,11 +44,12 @@ mensaje, y `✏️ Corregir` abre el menú del ítem.
 
 | # | Hacé | Tiene que pasar |
 |---|---|---|
-| 2.1 | Mirá el tablero | Cada tarea aparece **una sola vez**. Las de hoy y mañana con su número; el resto en secciones con `›` |
+| 2.1 | Mirá el tablero | Cada cosa aparece **una sola vez**. Vencidas, hoy y mañana listadas y numeradas; el resto, una línea de texto sin botón |
+| 2.1b | Contá los botones | Los `✅ N` (de a 5 por fila), `🛒 Compras · N`, `⋯ Cambiar algo`. **Nada más**: las secciones no son botones |
 | 2.2 | Tocá un `✅` | La tarea desaparece del tablero **al instante**, sin mensajes nuevos en el grupo |
-| 2.3 | Mirá abajo del tablero | Apareció `↩️ Deshacer` diciendo **qué** va a deshacer |
+| 2.3 | Mirá abajo del tablero | Apareció `↩️ Deshacer` diciendo **qué** va a deshacer. A los 5 minutos se va |
 | 2.4 | Tocalo | La tarea vuelve |
-| 2.5 | Tocá `⋯ Cambiar algo` | Un mensaje **aparte** con las tareas numeradas. El tablero no se mueve |
+| 2.5 | Tocá `⋯ Cambiar algo` | Un mensaje **aparte** con **todas** las cosas, incluidas las de «Algún día» y las compras. El tablero no se mueve |
 | 2.6 | Elegí una → `📅 Otro día` → `Mañana` | Cambia de día y el menú se cierra |
 | 2.7 | Otra vez `⋯` → `👤 Quién` → elegí a alguien | Queda a su nombre, y se ve en el tablero |
 | 2.8 | `⋯` → `✏️ Renombrar` y contestá al mensaje | Cambia **sólo** esa tarea |
