@@ -284,4 +284,5 @@ porque el error es más útil que la conclusión:
 | Un `⋯` al lado de cada tarea | Telegram le da media fila y cortaba los títulos al medio. Pasó a ser `⋯ Cambiar algo` |
 | Botones con toda la info (hora, responsable) | No entra. La info va al texto, el botón va corto |
 | Arreglos de esquema dentro de la migración versionada | La migración sale temprano si ya corrió, así que las bases que necesitaban el arreglo no lo recibían. Van sueltos en `init_db` |
+| Cambiar la definición de un índice en el esquema | `CREATE INDEX IF NOT EXISTS` no lo redefine: el viejo sobrevive y bloquea el `DROP COLUMN`. Se borra a mano y el esquema lo recrea |
 | Que el tipo de una cosa cambiara **cómo** se guarda | A las compras se les sacaba el verbo, y eso rompía los duplicados y perdía palabras. Ahora 🛒 es sólo una etiqueta |

@@ -107,6 +107,7 @@ Todas pasaron de verdad. Están acá para no repetirlas:
 | Trampa | Qué pasó |
 |---|---|
 | `CREATE TABLE IF NOT EXISTS` **no migra** una tabla que ya existe | Cambié el tipo de `updates_vistos.update_id` y en producción siguió siendo el viejo: **todos los botones quedaron muertos, en silencio** |
+| `CREATE INDEX IF NOT EXISTS` tampoco redefine un índice | El índice de v1 seguía nombrando `tipo`, y eso **bloqueaba el `DROP COLUMN`**: «error in index idx_tasks_estado after drop column». Hay que borrar el índice y dejar que el esquema lo recree |
 | Las migraciones versionadas **saltean** a quien ya migró | El arreglo de esa tabla estaba adentro de la migración a v2, que sale temprano si ya corrió: justo las bases que lo necesitaban no lo recibían. Los arreglos de forma van en `init_db`, sueltos |
 | Telegram **corta los botones al medio** | Un botón que comparte fila tiene media pantalla. Lo largo va en el texto; hay un test que recorre todos los botones |
 | Un error de SQLite no es siempre «repetido» | Tomar cualquier `IntegrityError` por duplicado hizo que se descartaran todos los toques. Ahora se comprueba si la fila está |
@@ -135,7 +136,7 @@ sabe leer una base migrada: si volvés el código sin restaurar la base, el bot 
 
 ```bash
 cd ~/Notita
-ls -la notita.db.antes-de-v*.bak        # 1. mirá qué respaldos hay
+ls -la notita.db.antes-de-*.bak         # 1. mirá qué respaldos hay
 mv notita.db notita.db.rota             # 2. NO borres la base actual
 cp notita.db.antes-de-v3.AAAA-MM-DD.bak notita.db   # 3. restaurá la del día
 git checkout <commit-anterior>          # 4. y recién ahora el código

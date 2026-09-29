@@ -518,3 +518,96 @@ def test_la_confirmacion_mezcla_las_dos_cosas(enviados, monkeypatch):
     assert "Anoté 2 cositas" in confirmacion
     assert "🛒 Comprar leche" in confirmacion
     assert "Llamar al plomero" in confirmacion and "mañana" in confirmacion
+
+
+# --------------------------------------------------------------------------
+# El índice viejo que bloqueaba el DROP COLUMN
+# --------------------------------------------------------------------------
+
+def base_v3_con_indice_viejo(ruta):
+    """Como quedó producción: esquema=3, pero `tipo` y el índice viejo ahí.
+
+    El `DROP COLUMN` había fallado con «error in index idx_tasks_estado after drop
+    column: no such column: tipo», y la migración se anotó como terminada igual.
+    """
+    import sqlite3
+
+    c = sqlite3.connect(ruta)
+    c.executescript("""
+CREATE TABLE tasks (id INTEGER PRIMARY KEY AUTOINCREMENT, chat_id INTEGER NOT NULL,
+ texto TEXT NOT NULL, tipo TEXT NOT NULL DEFAULT 'casa',
+ compra INTEGER NOT NULL DEFAULT 0, categoria TEXT NOT NULL DEFAULT 'otros',
+ responsable TEXT NOT NULL DEFAULT 'ninguno', due_date TEXT, due_hora TEXT,
+ mensaje_origen_id INTEGER, recur_kind TEXT, recur_interval INTEGER DEFAULT 1,
+ recur_weekday INTEGER, recur_monthday INTEGER,
+ estado TEXT NOT NULL DEFAULT 'pendiente', postpone_count INTEGER NOT NULL DEFAULT 0,
+ created_by TEXT NOT NULL DEFAULT 'ninguno', created_at TEXT NOT NULL,
+ completed_by TEXT, completed_at TEXT);
+CREATE INDEX idx_tasks_estado ON tasks (estado, tipo, due_date);
+CREATE TABLE ajustes (clave TEXT PRIMARY KEY, valor TEXT);
+CREATE TABLE updates_vistos (update_id TEXT PRIMARY KEY, visto_en TEXT NOT NULL);
+""")
+    c.execute("INSERT INTO ajustes VALUES ('esquema','3'),('compras_migradas','6')")
+    c.execute("INSERT INTO tasks (chat_id, texto, tipo, compra, created_at) "
+              "VALUES (?,?,?,?,?)", (CHAT, "Falta leche", "compras", 1,
+                                     "2026-09-01T10:00:00-03:00"))
+    c.commit()
+    c.close()
+
+
+def test_un_indice_viejo_no_puede_bloquear_la_limpieza(tmp_path, monkeypatch):
+    """`CREATE INDEX IF NOT EXISTS` no redefine un índice que ya existe.
+
+    Así que el índice de v1 sobrevivió al cambio de esquema y bloqueaba el DROP.
+    """
+    from notita import config
+
+    ruta = tmp_path / "prod.db"
+    base_v3_con_indice_viejo(ruta)
+    monkeypatch.setattr(config, "DB_PATH", str(ruta))
+
+    db.init_db()
+
+    with db.conn() as c:
+        columnas = {f["name"] for f in c.execute("PRAGMA table_info(tasks)")}
+        indice = c.execute("SELECT sql FROM sqlite_master WHERE type='index' "
+                           "AND name='idx_tasks_estado'").fetchone()
+    assert "tipo" not in columnas, "la columna se borra igual"
+    assert "tipo" not in (indice["sql"] or ""), "y el índice queda con la forma nueva"
+    assert [(r["texto"], r["compra"]) for r in db.pendientes(CHAT)] == [("Falta leche", 1)]
+
+
+def test_se_respalda_aunque_el_esquema_ya_este_al_dia(tmp_path, monkeypatch):
+    """Borrar columnas es tocar la forma: va con copia, esquema al día o no."""
+    from notita import config
+
+    ruta = tmp_path / "prod.db"
+    base_v3_con_indice_viejo(ruta)
+    monkeypatch.setattr(config, "DB_PATH", str(ruta))
+
+    db.init_db()
+
+    assert list(tmp_path.glob("prod.db.antes-de-limpiar.*.bak"))
+
+
+def test_una_vez_limpia_no_respalda_mas(tmp_path, monkeypatch):
+    from notita import config
+
+    ruta = tmp_path / "prod.db"
+    base_v3_con_indice_viejo(ruta)
+    monkeypatch.setattr(config, "DB_PATH", str(ruta))
+    db.init_db()
+    for bak in tmp_path.glob("*.bak"):
+        bak.unlink()
+
+    db.init_db()
+
+    assert list(tmp_path.glob("*.bak")) == []
+
+
+def test_el_indice_nuevo_no_menciona_columnas_muertas():
+    """Si el esquema vuelve a nombrar `tipo`, este test lo caza."""
+    for sentencia in db.SCHEMA.split(";"):
+        if "CREATE INDEX" in sentencia.upper():
+            for muerta in db.COLUMNAS_MUERTAS["tasks"]:
+                assert muerta not in sentencia, sentencia.strip()

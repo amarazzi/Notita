@@ -154,7 +154,9 @@ VERSION_ESQUEMA = 3      # 3: una sola clase de cosa, con la etiqueta 🛒
 
 
 def init_db() -> None:
-    _respaldar_antes_de_migrar()
+    # Antes de abrir la transacción: copiar el archivo con una escritura a medias
+    # daría un respaldo inservible.
+    _respaldar_si_hace_falta()
     with conn() as c:
         c.executescript(SCHEMA)
         for tabla, columnas in COLUMNAS_AGREGADAS.items():
@@ -167,16 +169,24 @@ def init_db() -> None:
         # base que ya había migrado salía por el `return` de arriba y no lo recibía
         # nunca: en producción quedó con la tabla vieja y todos los botones muertos.
         _rehacer_updates_vistos(c)
-        _tipo_a_compra(c)          # antes de que la migración borre `tipo`
+        _tipo_a_compra(c)                 # las dos necesitan `tipo`…
         _migrar_a_v2(c)
+        _limpiar_columnas_muertas(c)      # …así que recién acá se puede borrar
 
 
-def _respaldar_antes_de_migrar() -> None:
-    """Copia la base antes de CADA cambio de esquema. Nunca pisa un respaldo.
+def _respaldar_si_hace_falta() -> None:
+    """Copia la base antes de tocarle la forma. Nunca pisa un respaldo.
 
-    La primera versión de esto sólo respaldaba si la base todavía era de v1, así que
-    la migración a v3 —la que borra una columna— iba a correr sin red. Y el nombre
-    era fijo (`.v1.bak`): se habría sobrescrito la única copia de esos datos.
+    Hace falta en dos casos, y los dos importan:
+
+    1. Hay una migración de esquema por delante.
+    2. Quedan columnas muertas por borrar. Puede pasar con el esquema al día: en
+       producción el `DROP COLUMN` falló (un índice viejo lo bloqueaba) y la
+       migración se anotó como terminada igual.
+
+    La primera versión de esto sólo respaldaba si la base era de v1, así que la
+    migración que borra una columna iba a correr sin red. Y el nombre era fijo
+    (`.v1.bak`): se habría pisado la única copia de esos datos.
     """
     import shutil
     from pathlib import Path
@@ -188,15 +198,28 @@ def _respaldar_antes_de_migrar() -> None:
         desde = int(_esquema_guardado() or 1)
     except (ValueError, TypeError):
         desde = 1
-    if desde >= VERSION_ESQUEMA:
-        return                          # no hay migración por delante
+    motivo = None
+    if desde < VERSION_ESQUEMA:
+        motivo = f"v{VERSION_ESQUEMA}"
+    elif _hay_columnas_muertas():
+        motivo = "limpiar"
+    if not motivo:
+        return
     try:
-        respaldo = _nombre_de_respaldo(base)
+        respaldo = _nombre_de_respaldo(base, motivo)
         shutil.copy2(base, respaldo)
-        log.info("Respaldo antes de migrar (v%s → v%s): %s",
-                 desde, VERSION_ESQUEMA, respaldo)
+        log.info("Respaldo antes de tocar la base (%s): %s", motivo, respaldo)
     except OSError as e:
-        log.error("No pude respaldar la base antes de migrar: %s", e)
+        log.error("No pude respaldar la base: %s", e)
+
+
+def _hay_columnas_muertas() -> bool:
+    try:
+        with conn() as c:
+            existentes = {f["name"] for f in c.execute("PRAGMA table_info(tasks)")}
+    except sqlite3.Error:
+        return False
+    return bool(existentes & set(COLUMNAS_MUERTAS["tasks"]))
 
 
 def _esquema_guardado() -> str | None:
@@ -210,18 +233,18 @@ def _esquema_guardado() -> str | None:
         return None                     # ni siquiera existe `ajustes`
 
 
-def _nombre_de_respaldo(base):
+def _nombre_de_respaldo(base, motivo: str):
     """`notita.db.antes-de-v3.2026-09-29.bak`, y nunca uno que ya exista.
 
     Lleva fecha porque ya hubo un respaldo antes (`.v1.bak`) y pisarlo sería perder
     la única copia de esos datos.
     """
     fecha = ahora().date().isoformat()
-    candidato = base.with_name(f"{base.name}.antes-de-v{VERSION_ESQUEMA}.{fecha}.bak")
+    candidato = base.with_name(f"{base.name}.antes-de-{motivo}.{fecha}.bak")
     intento = 2
     while candidato.exists():
         candidato = base.with_name(
-            f"{base.name}.antes-de-v{VERSION_ESQUEMA}.{fecha}-{intento}.bak")
+            f"{base.name}.antes-de-{motivo}.{fecha}-{intento}.bak")
         intento += 1
     return candidato
 
@@ -250,19 +273,51 @@ def _migrar_a_v2(c) -> None:
                   ("recados_descartados", str(recados)))
         log.info("v2: descarté %d recado(s) diferido(s) pendiente(s)", recados)
 
-    existentes = {f["name"] for f in c.execute("PRAGMA table_info(tasks)")}
-    for columna in COLUMNAS_MUERTAS["tasks"]:
-        if columna in existentes:
-            try:
-                c.execute(f"ALTER TABLE tasks DROP COLUMN {columna}")
-            except sqlite3.OperationalError:
-                # SQLite viejo no sabe borrar columnas. Quedan ahí sin que nadie las
-                # lea, que es inofensivo; lo que importa es que no haya código que use.
-                log.info("No pude borrar la columna %s (SQLite viejo): la dejo sin uso",
-                         columna)
-
     c.execute("INSERT OR REPLACE INTO ajustes (clave, valor) VALUES (?,?)",
               ("esquema", str(VERSION_ESQUEMA)))
+
+
+def _limpiar_columnas_muertas(c) -> None:
+    """Borra las columnas que ya no se usan. Corre siempre, no en la migración.
+
+    Dos razones para que esté acá y no dentro de `_migrar_a_v2`:
+
+    1. La migración sale temprano si la base ya está en la versión actual, así que una
+       base que quedó a medias no se arreglaba nunca (ya nos pasó con `updates_vistos`).
+    2. Un índice que menciona la columna **bloquea** el DROP:
+       «error in index idx_tasks_estado after drop column: no such column: tipo».
+       Y `CREATE INDEX IF NOT EXISTS` no redefine un índice que ya existe, así que el
+       índice viejo sobrevive a un cambio de esquema. Hay que borrarlo a mano y
+       dejar que el esquema lo vuelva a crear.
+    """
+    existentes = {f["name"] for f in c.execute("PRAGMA table_info(tasks)")}
+    muertas = [col for col in COLUMNAS_MUERTAS["tasks"] if col in existentes]
+    if not muertas:
+        return
+
+    indices = c.execute(
+        "SELECT name, sql FROM sqlite_master WHERE type='index' AND tbl_name='tasks'"
+    ).fetchall()
+    for indice in indices:
+        sql = indice["sql"] or ""       # los de UNIQUE implícitos no tienen sql
+        if any(col in sql for col in muertas):
+            c.execute(f"DROP INDEX IF EXISTS {indice['name']}")
+            log.info("Borré el índice %s: mencionaba una columna muerta",
+                     indice["name"])
+
+    for columna in muertas:
+        try:
+            c.execute(f"ALTER TABLE tasks DROP COLUMN {columna}")
+            log.info("Borré la columna muerta %s", columna)
+        except sqlite3.OperationalError as e:
+            # SQLite < 3.35 no sabe borrar columnas. No es grave: quedan sin usar.
+            log.info("No pude borrar %s (%s). Queda sin usar.", columna, e)
+
+    # El esquema define los índices con IF NOT EXISTS: los que borré se recrean acá,
+    # ya con la definición nueva.
+    for sentencia in SCHEMA.split(";"):
+        if "CREATE INDEX" in sentencia.upper():
+            c.execute(sentencia)
 
 
 def _tipo_a_compra(c) -> None:

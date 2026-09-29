@@ -395,8 +395,15 @@ def revisar_esquema() -> None:
             "corré: python3 -c \"from notita import db; db.init_db()\"")
     else:
         ok("el esquema está al día")
-        if "tipo" in columnas:
-            ok("la columna `tipo` quedó sin usar (SQLite no supo borrarla)")
+        muertas = {"tipo", "recordada_veces", "last_reminded_on"} & columnas
+        if muertas and version >= (3, 35):
+            # Pasó de verdad: un índice viejo que mencionaba `tipo` bloqueaba el DROP.
+            aviso(f"quedaron columnas sin usar: {', '.join(sorted(muertas))}",
+                  "no rompe nada, pero se pueden borrar: "
+                  "python3 -c \"from notita import db; db.init_db()\"")
+        elif muertas:
+            ok(f"columnas viejas sin usar ({', '.join(sorted(muertas))}): "
+               f"esta SQLite no sabe borrarlas")
     guardado = db.ajuste("esquema")
     if guardado and guardado != str(db.VERSION_ESQUEMA):
         aviso(f"la base dice esquema v{guardado} y el código espera "
