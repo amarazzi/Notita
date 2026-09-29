@@ -361,12 +361,21 @@ def revisar_esquema() -> None:
     que todo bien.
     """
     titulo("El esquema de la base")
+    # DROP COLUMN necesita SQLite >= 3.35. Si es más vieja, la migración deja la
+    # columna sin usar en vez de fallar; conviene saber en qué caso estamos.
+    version = tuple(int(x) for x in sqlite3.sqlite_version.split("."))
+    if version >= (3, 35):
+        ok(f"SQLite {sqlite3.sqlite_version} (sabe borrar columnas)")
+    else:
+        aviso(f"SQLite {sqlite3.sqlite_version}: no sabe borrar columnas",
+              "no es un problema: las columnas viejas quedan sin usar")
     try:
         with db.conn() as c:
             tablas = {f["name"] for f in
                       c.execute("SELECT name FROM sqlite_master WHERE type='table'")}
             tipos = {f["name"]: (f["type"] or "").upper()
                      for f in c.execute("PRAGMA table_info(updates_vistos)")}
+            columnas = {f["name"] for f in c.execute("PRAGMA table_info(tasks)")}
     except sqlite3.Error as e:
         mal(f"no pude leer el esquema: {e}")
         return
@@ -379,8 +388,18 @@ def revisar_esquema() -> None:
     elif tipos.get("update_id") != "TEXT":
         mal("la base quedó con el esquema de v1 (los botones no van a funcionar)",
             "corré: python3 -c \"from notita import db; db.init_db()\"")
+    elif "compra" not in columnas:
+        mal("falta la columna `compra` (la etiqueta 🛒)",
+            "corré: python3 -c \"from notita import db; db.init_db()\"")
     else:
         ok("el esquema está al día")
+        if "tipo" in columnas:
+            ok("la columna `tipo` quedó sin usar (SQLite no supo borrarla)")
+    guardado = db.ajuste("esquema")
+    if guardado and guardado != str(db.VERSION_ESQUEMA):
+        aviso(f"la base dice esquema v{guardado} y el código espera "
+              f"v{db.VERSION_ESQUEMA}",
+              "corré: python3 -c \"from notita import db; db.init_db()\"")
 
 
 def revisar_tablero() -> None:

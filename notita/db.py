@@ -172,27 +172,58 @@ def init_db() -> None:
 
 
 def _respaldar_antes_de_migrar() -> None:
-    """Copia la base antes de la primera migración a v2. Una sola vez."""
+    """Copia la base antes de CADA cambio de esquema. Nunca pisa un respaldo.
+
+    La primera versión de esto sólo respaldaba si la base todavía era de v1, así que
+    la migración a v3 —la que borra una columna— iba a correr sin red. Y el nombre
+    era fijo (`.v1.bak`): se habría sobrescrito la única copia de esos datos.
+    """
     import shutil
     from pathlib import Path
 
     base = Path(config.DB_PATH)
     if not base.exists() or str(config.DB_PATH) == ":memory:":
         return
-    respaldo = base.with_name(base.name + ".v1.bak")
-    if respaldo.exists():
-        return
+    try:
+        desde = int(_esquema_guardado() or 1)
+    except (ValueError, TypeError):
+        desde = 1
+    if desde >= VERSION_ESQUEMA:
+        return                          # no hay migración por delante
+    try:
+        respaldo = _nombre_de_respaldo(base)
+        shutil.copy2(base, respaldo)
+        log.info("Respaldo antes de migrar (v%s → v%s): %s",
+                 desde, VERSION_ESQUEMA, respaldo)
+    except OSError as e:
+        log.error("No pude respaldar la base antes de migrar: %s", e)
+
+
+def _esquema_guardado() -> str | None:
+    """La versión de esquema anotada, o None si la base es de v1 o está vacía."""
     try:
         with conn() as c:
             fila = c.execute(
-                "SELECT name FROM sqlite_master WHERE type='table' AND name='tablero'"
-            ).fetchone()
-        if fila:            # ya está en v2: no hay nada que respaldar
-            return
-        shutil.copy2(base, respaldo)
-        log.info("Respaldo de la base de v1 en %s", respaldo)
-    except OSError as e:
-        log.error("No pude respaldar la base antes de migrar: %s", e)
+                "SELECT valor FROM ajustes WHERE clave = 'esquema'").fetchone()
+        return fila["valor"] if fila else None
+    except sqlite3.Error:
+        return None                     # ni siquiera existe `ajustes`
+
+
+def _nombre_de_respaldo(base):
+    """`notita.db.antes-de-v3.2026-09-29.bak`, y nunca uno que ya exista.
+
+    Lleva fecha porque ya hubo un respaldo antes (`.v1.bak`) y pisarlo sería perder
+    la única copia de esos datos.
+    """
+    fecha = ahora().date().isoformat()
+    candidato = base.with_name(f"{base.name}.antes-de-v{VERSION_ESQUEMA}.{fecha}.bak")
+    intento = 2
+    while candidato.exists():
+        candidato = base.with_name(
+            f"{base.name}.antes-de-v{VERSION_ESQUEMA}.{fecha}-{intento}.bak")
+        intento += 1
+    return candidato
 
 
 def _migrar_a_v2(c) -> None:

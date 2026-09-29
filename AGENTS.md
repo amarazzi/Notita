@@ -128,4 +128,23 @@ curl -s https://USUARIO.pythonanywhere.com/     # actualizado: true
 python3.13 doctor.py                            # tiene que estar todo en ✓
 ```
 
+### Volver atrás
+
+**El código y el esquema de la base viajan juntos.** Una versión vieja del código no
+sabe leer una base migrada: si volvés el código sin restaurar la base, el bot se cae.
+
+```bash
+cd ~/Notita
+ls -la notita.db.antes-de-v*.bak        # 1. mirá qué respaldos hay
+mv notita.db notita.db.rota             # 2. NO borres la base actual
+cp notita.db.antes-de-v3.AAAA-MM-DD.bak notita.db   # 3. restaurá la del día
+git checkout <commit-anterior>          # 4. y recién ahora el código
+```
+Después **Reload** desde la pestaña Web, y verificá con `curl` que `version` sea el
+commit al que volviste.
+
+El respaldo lo hace la propia migración, **antes** de tocar nada, con la fecha en el
+nombre y sin pisar ninguno anterior (`_nombre_de_respaldo` en `db.py`). Si el archivo
+no está, la migración no corrió.
+
 Para probar la app a mano, seguí [docs/PROBAR.md](docs/PROBAR.md).

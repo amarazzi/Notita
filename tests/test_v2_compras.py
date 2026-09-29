@@ -307,7 +307,8 @@ def test_la_migracion_etiqueta_las_compras_sin_tocar_el_texto(tmp_path, monkeypa
     assert filas["Yerba"]["compra"] == 1
     assert filas["Sacar la basura"]["compra"] == 0
     assert filas["Sacar la basura"]["due_date"] == "2026-09-30", "ni la fecha"
-    assert (tmp_path / "prod.db.v1.bak").exists(), "backup antes de migrar"
+    respaldos = list(tmp_path.glob("prod.db.antes-de-v3.*.bak"))
+    assert len(respaldos) == 1, f"backup antes de migrar: {list(tmp_path.iterdir())}"
 
 
 def test_la_migracion_no_vuelve_a_pisar_la_etiqueta(tmp_path, monkeypatch):
@@ -337,8 +338,124 @@ def test_la_columna_tipo_ya_no_esta(tmp_path, monkeypatch):
 
     with db.conn() as c:
         columnas = {f["name"] for f in c.execute("PRAGMA table_info(tasks)")}
-    assert "tipo" not in columnas or True   # si SQLite no sabe borrar, queda sin uso
     assert "compra" in columnas
+    assert "tipo" not in columnas, "con SQLite >= 3.35 se borra"
+
+
+# --------------------------------------------------------------------------
+# El respaldo: nunca se pisa, y siempre hay uno antes de migrar
+# --------------------------------------------------------------------------
+
+def test_el_respaldo_no_pisa_el_de_la_migracion_anterior(tmp_path, monkeypatch):
+    """Ya existía un `notita.db.v1.bak`: pisarlo sería perder esos datos."""
+    from notita import config
+
+    ruta = tmp_path / "prod.db"
+    base_con_super(ruta)
+    viejo = tmp_path / "prod.db.v1.bak"
+    viejo.write_bytes(b"el respaldo de la migracion anterior")
+    monkeypatch.setattr(config, "DB_PATH", str(ruta))
+
+    db.init_db()
+
+    assert viejo.read_bytes() == b"el respaldo de la migracion anterior"
+    assert list(tmp_path.glob("prod.db.antes-de-v3.*.bak")), "y el nuevo existe"
+
+
+def test_el_respaldo_lleva_fecha_y_no_se_pisa_a_si_mismo(tmp_path, monkeypatch):
+    from notita import config
+    from notita.dates import ahora
+
+    ruta = tmp_path / "prod.db"
+    base_con_super(ruta)
+    monkeypatch.setattr(config, "DB_PATH", str(ruta))
+    hoy_iso = ahora().date().isoformat()
+    (tmp_path / f"prod.db.antes-de-v3.{hoy_iso}.bak").write_bytes(b"uno de antes")
+
+    db.init_db()
+
+    assert (tmp_path / f"prod.db.antes-de-v3.{hoy_iso}.bak").read_bytes() == b"uno de antes"
+    assert (tmp_path / f"prod.db.antes-de-v3.{hoy_iso}-2.bak").exists()
+
+
+def test_una_base_ya_en_v2_tambien_se_respalda(tmp_path, monkeypatch):
+    """El bug: sólo respaldaba si la base era de v1.
+
+    La de producción ya estaba en v2, así que la migración que BORRA una columna
+    habría corrido sin ninguna copia.
+    """
+    from notita import config
+
+    ruta = tmp_path / "prod.db"
+    base_con_super(ruta, esquema="2")
+    monkeypatch.setattr(config, "DB_PATH", str(ruta))
+
+    db.init_db()
+
+    assert list(tmp_path.glob("prod.db.antes-de-v3.*.bak"))
+
+
+def test_sin_migracion_por_delante_no_respalda_de_gusto(tmp_path, monkeypatch):
+    from notita import config
+
+    ruta = tmp_path / "prod.db"
+    base_con_super(ruta)
+    monkeypatch.setattr(config, "DB_PATH", str(ruta))
+    db.init_db()
+    for bak in tmp_path.glob("*.bak"):
+        bak.unlink()
+
+    db.init_db()      # segundo arranque, ya migrada
+
+    assert list(tmp_path.glob("*.bak")) == [], "no acumula copias en cada reinicio"
+
+
+# --------------------------------------------------------------------------
+# SQLite vieja, sin DROP COLUMN
+# --------------------------------------------------------------------------
+
+class SinDropColumn:
+    """Una conexión que finge ser SQLite < 3.35."""
+
+    def __init__(self, real):
+        self._real = real
+
+    def execute(self, sql, *args):
+        import sqlite3 as sq
+
+        if "DROP COLUMN" in sql.upper():
+            raise sq.OperationalError('near "DROP": syntax error')
+        return self._real.execute(sql, *args)
+
+    def __getattr__(self, nombre):
+        return getattr(self._real, nombre)
+
+
+def test_si_sqlite_no_sabe_borrar_columnas_igual_funciona(tmp_path, monkeypatch):
+    """PythonAnywhere podría tener SQLite < 3.35: la columna queda sin uso."""
+    from notita import config
+
+    ruta = tmp_path / "prod.db"
+    base_con_super(ruta)
+    monkeypatch.setattr(config, "DB_PATH", str(ruta))
+    db.init_db()                       # crea las tablas nuevas y la columna compra
+
+    # Se rebobina el esquema para que la migración corra de nuevo, ahora sin DROP.
+    db.ajuste("esquema", "2")
+    with db.conn() as real:
+        db._migrar_a_v2(SinDropColumn(real))
+
+    with db.conn() as c:
+        columnas = {f["name"] for f in c.execute("PRAGMA table_info(tasks)")}
+    assert "compra" in columnas
+    assert db.ajuste("esquema") == str(db.VERSION_ESQUEMA), "la migración se completa igual"
+
+    # Y lo que importa: seguir anotando y leyendo con la columna vieja presente.
+    tid = db.crear_tarea(CHAT, "Papel higiénico", compra=True)
+    assert db.obtener(tid)["compra"] == 1
+    textos_compras = [r["texto"] for r in db.pendientes(CHAT, compra=True)]
+    assert "Papel higiénico" in textos_compras
+    assert "Sacar la basura" not in textos_compras
 
 
 # --------------------------------------------------------------------------
