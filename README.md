@@ -53,19 +53,20 @@ Hoy
 2. 🐾 Llevar a Milo al veterinario · 🕕 18:00 · Barbu
 3. 🛒 Falta carbón para el asado
 
-Mañana · mar 29
-4. 💸 Pagar el ABL
+Sin fecha
+4. 🔧 Arreglar la canilla
 
-Esta semana: 📄 Ir a la sede · vie 2/10
-Sin fecha: 4
+Esta semana
+5. 💸 Pagar el ABL · vie 2/10
 
-[ ✅ 1 ] [ ✅ 2 ] [ ✅ 3 ] [ ✅ 4 ]
+[ ✅ 1 ] [ ✅ 2 ] [ ✅ 3 ] [ ✅ 4 ] [ ✅ 5 ]
 [ 🛒 Compras · 5 ] [ ⋯ Cambiar algo ]
 ```
 
-**El texto es para leer; los botones, sólo para hacer.** Cada cosa aparece una vez: el
-número ata el renglón con su `✅`, y las secciones lejanas son una línea de texto sin
-botón. Todo —incluso lo que no tiene número— se puede cambiar desde **⋯ Cambiar algo**.
+**Es una lista de cosas para hacer, no una agenda.** El orden no es el del calendario:
+es cuánto te está pidiendo atención, y **lo que no tiene fecha se lista igual** —si
+quedara como un número, se podriría ahí para siempre—. El texto es para leer y los
+botones sólo para hacer: el número ata el renglón con su `✅`.
 
 
 Hay **una sola clase de cosa**. La 🛒 es una etiqueta para filtrar: lo que tiene fecha
@@ -76,8 +77,9 @@ una por una. El botón cuenta **todo lo etiquetado**, igual que `/compras`.
 - **⋯ Cambiar algo** lista **todas** las cosas para elegir cuál: mover de día, quién la
   hace, renombrar, marcarla como compra 🛒, borrarla o agregarla al calendario.
 - Si tachás algo sin querer, aparece **↩️ Deshacer** en el tablero por 5 minutos.
-- Se numeran las vencidas, las de hoy y las de mañana. Si son más de diez, mañana se
-  queda sin números —se sigue leyendo— y se cambia desde el `⋯`.
+- Se listan hasta 15 cosas; con la casa tranquila, eso es **todo**. Si se desborda, lo
+  que tiene día futuro se resume en una línea («Más adelante: 5») y se cambia desde el
+  `⋯`: eso va a volver solo cuando llegue su día.
 - Los menús se abren en un mensaje **aparte**, así lo que toca uno no le cambia la
   pantalla al otro.
 
@@ -597,7 +599,7 @@ Tres documentos, según qué necesites:
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt pytest
 cp .env.example .env
-pytest                 # 553 tests, sin red ni API keys
+pytest                 # 552 tests, sin red ni API keys
 python app.py          # http://localhost:5000
 ```
 

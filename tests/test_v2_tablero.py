@@ -484,8 +484,7 @@ def test_ninguna_seccion_aparece_como_boton(enviados):
                    "Mañana"):
         assert not any(nombre in e for e in etiquetas), f"{nombre} sigue siendo botón"
     # Pero en el texto sí están, que es donde se leen.
-    assert "Esta semana:" in texto and "Sin fecha:" in texto
-    assert "callback_data" not in texto
+    assert "Esta semana" in texto and "Sin fecha" in texto
     assert not any(b["callback_data"].startswith("2|sec")
                    for fila in filas for b in fila)
 
@@ -518,42 +517,6 @@ def test_los_vistos_van_de_a_cinco_por_fila(enviados):
     vistos = [fila for fila in filas if fila[0]["text"].startswith("✅")]
     assert [len(f) for f in vistos] == [5, 2]
     assert [b["text"] for b in vistos[0]] == ["✅ 1", "✅ 2", "✅ 3", "✅ 4", "✅ 5"]
-
-
-def test_con_muchas_cosas_manana_se_queda_sin_numeros(enviados):
-    """Más de 10 números es un tablero de control. Mañana se lee igual y se cambia
-
-    desde el «⋯», que lista todo.
-    """
-    for i in range(6):
-        db.crear_tarea(CHAT, f"De hoy {i}", due=hoy())
-    for i in range(6):
-        db.crear_tarea(CHAT, f"De mañana {i}", due=hoy() + timedelta(days=1))
-
-    texto, filas = tablero.render(CHAT)
-
-    vistos = [b["text"] for fila in filas for b in fila if b["text"].startswith("✅")]
-    assert len(vistos) == 6, "sólo las de hoy"
-    assert "De mañana 0" in texto, "pero se siguen leyendo"
-    assert "<b>7.</b>" not in texto
-
-
-def test_una_seccion_con_pocas_cosas_las_nombra(enviados):
-    db.crear_tarea(CHAT, "Ir a la sede", due=hoy() + timedelta(days=20))
-
-    texto, _ = tablero.render(CHAT)
-
-    assert "Más adelante:" in texto and "Ir a la sede" in texto
-
-
-def test_una_seccion_con_muchas_solo_dice_el_numero(enviados):
-    for i in range(5):
-        db.crear_tarea(CHAT, f"Cosa {i}", due=hoy() + timedelta(days=20 + i))
-
-    texto, _ = tablero.render(CHAT)
-
-    assert "<b>Más adelante:</b> 5" in texto
-    assert "Cosa 0" not in texto
 
 
 def test_las_secciones_vacias_no_se_muestran(enviados):
@@ -616,33 +579,8 @@ def test_los_bloques_se_separan_con_un_renglon_en_blanco(enviados):
     assert antes_de("Vencidas") == "", "aire después del encabezado"
     assert antes_de("<b>Hoy</b>") == ""
     assert antes_de("<b>Mañana</b>") == ""
-    assert antes_de("Sin fecha:") == ""
+    assert antes_de("Sin fecha") == ""
     assert renglones[-1] != "", "sin un renglón en blanco al final"
-
-
-def test_las_lineas_de_resumen_van_juntas_entre_si(enviados):
-    """Son una sola idea: «lo que no es para hoy ni mañana»."""
-    db.crear_tarea(CHAT, "Pagar el ABL", due=hoy() + timedelta(days=3))
-    db.crear_tarea(CHAT, "Ir a la sede", due=hoy() + timedelta(days=20))
-    db.crear_tarea(CHAT, "Pintar el balcón")
-
-    texto, _ = tablero.render(CHAT)
-    renglones = texto.splitlines()
-    resumen = [n for n, r in enumerate(renglones)
-               if r.startswith(("<b>Esta semana:", "<b>Más adelante:", "<b>Sin fecha:"))]
-
-    assert len(resumen) == 3
-    assert resumen == list(range(resumen[0], resumen[0] + 3)), "sin aire entre ellas"
-
-
-def test_lo_que_no_tiene_fecha_no_dice_algun_dia(enviados):
-    """«Algún día» suena a lista de deseos; son cosas sin fecha."""
-    db.crear_tarea(CHAT, "Pintar el balcón")
-
-    texto, _ = tablero.render(CHAT)
-
-    assert "<b>Sin fecha:</b>" in texto
-    assert "lgún día" not in texto
 
 
 def test_el_carrito_significa_solo_la_etiqueta(enviados):
@@ -665,25 +603,90 @@ def test_el_carrito_significa_solo_la_etiqueta(enviados):
     assert any(b["text"] == "🛒 Compras · 1" for fila in filas for b in fila)
 
 
-def test_una_linea_de_resumen_que_no_entra_nombra_la_primera(enviados):
-    """Una línea que se parte en tres renglones es peor que un número."""
-    db.crear_tarea(CHAT, "Cemento de doble contacto para la mesa de la terraza")
-    db.crear_tarea(CHAT, "Arreglar la canilla del lavadero", categoria="arreglos")
+
+# --------------------------------------------------------------------------
+# El tablero es una lista de cosas para hacer, no una agenda
+# --------------------------------------------------------------------------
+
+def test_lo_que_no_tiene_fecha_se_lista_con_su_boton(enviados):
+    """Algo con fecha aparece solo cuando llega su día; algo sin fecha, nunca.
+
+    Puesto como número en una línea de resumen, se podría ahí para siempre.
+    """
+    db.crear_tarea(CHAT, "Arreglar la canilla", categoria="arreglos")
+    db.crear_tarea(CHAT, "Pintar el balcón")
+
+    texto, filas = tablero.render(CHAT)
+
+    assert "<b>Sin fecha</b>" in texto
+    assert "1.</b> 🔧 Arreglar la canilla" in texto
+    assert "2.</b> 📌 Pintar el balcón" in texto
+    assert [b["text"] for b in filas[0]] == ["✅ 1", "✅ 2"]
+
+
+def test_lo_sin_fecha_va_antes_de_lo_que_tiene_dia_futuro(enviados):
+    db.crear_tarea(CHAT, "Pagar el ABL", due=hoy() + timedelta(days=3), categoria="pagos")
+    db.crear_tarea(CHAT, "Arreglar la canilla", categoria="arreglos")
+
+    texto, _ = tablero.render(CHAT)
+    renglones = texto.splitlines()
+
+    assert renglones.index("<b>Sin fecha</b>") < renglones.index("<b>Esta semana</b>")
+
+
+def test_con_la_casa_tranquila_se_lista_todo(enviados):
+    """Seis cosas son seis renglones y seis botones: no hace falta resumir nada."""
+    db.crear_tarea(CHAT, "Agarrar sábanas", due=hoy() - timedelta(days=2))
+    db.crear_tarea(CHAT, "Traer las llaves", due=hoy())
+    db.crear_tarea(CHAT, "Llevar a Milo", due=hoy() + timedelta(days=1))
+    db.crear_tarea(CHAT, "Arreglar la canilla")
+    db.crear_tarea(CHAT, "Pagar el ABL", due=hoy() + timedelta(days=3))
+    db.crear_tarea(CHAT, "Ir a la sede", due=hoy() + timedelta(days=20))
+
+    texto, filas = tablero.render(CHAT)
+
+    vistos = [b["text"] for fila in filas for b in fila if b["text"].startswith("✅")]
+    assert len(vistos) == 6, "todas tienen su botón"
+    for cosa in ("Agarrar sábanas", "Traer las llaves", "Llevar a Milo",
+                 "Arreglar la canilla", "Pagar el ABL", "Ir a la sede"):
+        assert cosa in texto
+    assert ":</b> 1" not in texto, "nada quedó reducido a un número"
+
+
+def test_con_la_casa_desbordada_se_resume_desde_el_final(enviados):
+    """Lo primero que se resume es lo que tiene día futuro: va a volver solo."""
+    for i in range(4):
+        db.crear_tarea(CHAT, f"De hoy {i}", due=hoy())
+    for i in range(4):
+        db.crear_tarea(CHAT, f"De mañana {i}", due=hoy() + timedelta(days=1))
+    for i in range(4):
+        db.crear_tarea(CHAT, f"Sin fecha {i}")
+    for i in range(4):
+        db.crear_tarea(CHAT, f"De la semana {i}", due=hoy() + timedelta(days=3))
+
+    texto, filas = tablero.render(CHAT)
+
+    vistos = [b["text"] for fila in filas for b in fila if b["text"].startswith("✅")]
+    assert len(vistos) == 12, "hoy, mañana y sin fecha"
+    assert "<b>Esta semana:</b> 4" in texto, "la semana se resume"
+    assert "De la semana 0" not in texto
+
+
+def test_las_secciones_futuras_muestran_el_dia(enviados):
+    """«Pagar el ABL» sin el «vie 2/10» no sirve de nada."""
+    db.crear_tarea(CHAT, "Pagar el ABL", due=hoy() + timedelta(days=3), categoria="pagos")
 
     texto, _ = tablero.render(CHAT)
 
-    resumen = [r for r in texto.splitlines() if "Sin fecha:" in r][0]
-    assert "+1" in resumen
-    assert len(resumen) < 80, resumen
-    assert "Arreglar la canilla del lavadero" not in resumen
+    assert "Pagar el ABL · <i>" in texto
+    assert views.dia_corto(hoy() + timedelta(days=3), con_mes=True) in texto
 
 
-def test_con_dos_cosas_cortas_se_nombran_las_dos(enviados):
-    db.crear_tarea(CHAT, "Regar", categoria="otros")
-    db.crear_tarea(CHAT, "Barrer", categoria="limpieza")
+def test_lo_de_hoy_y_mañana_no_repite_el_dia(enviados):
+    """El encabezado ya lo dice."""
+    db.crear_tarea(CHAT, "Sacar la basura", due=hoy())
 
     texto, _ = tablero.render(CHAT)
 
-    resumen = [r for r in texto.splitlines() if "Sin fecha:" in r][0]
-    assert "Regar" in resumen and "Barrer" in resumen
-    assert "+" not in resumen
+    renglon = [r for r in texto.splitlines() if "Sacar la basura" in r][0]
+    assert "hoy" not in renglon.lower()

@@ -64,22 +64,30 @@ importa— quedaban abajo, escondidas.
 - El teclado de Telegram va **abajo del texto**, no intercalado, así que el **número**
   es lo único que ata un renglón con su botón. Por eso el botón es sólo `✅ 3`: el
   texto ya dice qué es, con la hora, el responsable y la recurrencia.
-- Se numeran **vencidas, hoy y mañana**, que es lo que hay que hacer. Si son más de
-  diez, mañana pierde los números (se sigue leyendo) y se maneja por el `⋯`: un
-  tablero con quince botones es un tablero de control.
-- **Esta semana, Más adelante y Sin fecha son una línea de texto sin botón.** Con una
-  o dos cosas se nombran («Más adelante: Ir a la sede · dom 4/10»), porque un número
-  solo no dice nada; con más, sólo el número, porque cinco títulos tapan lo de hoy.
-  Las tres van juntas, sin aire entre ellas: son una sola idea, «lo que no es para hoy
-  ni mañana». Si los títulos no entran en un renglón, se nombra el primero y se cuenta
-  el resto («Sin fecha: 📌 Cemento de doble contacto… +1»): una línea que se parte en
+- **Es una lista de cosas para hacer, no una agenda.** El orden no es el del
+  calendario: es cuánto te está pidiendo atención. Vencidas, Hoy, Mañana, **Sin
+  fecha**, Esta semana, Más adelante.
+- **Lo sin fecha va antes de lo que tiene día futuro**, y esa es la parte menos obvia:
+  algo con fecha **va a aparecer solo** cuando llegue su día; algo sin fecha no aparece
+  nunca si no se lista. Reducido a un número en una línea de resumen, se podre ahí para
+  siempre.
+- Se listan hasta 15 cosas, en ese orden de prioridad. **Con la casa tranquila eso es
+  todo**: seis pendientes son seis renglones y seis botones. Cuando se desborda, se
+  resume desde el final —primero lo que tiene día futuro, que va a volver solo—, y lo
+  resumido es una línea sin botón: con una o dos cosas se nombran («Más adelante: Ir a
+  la sede · dom 4/10»), con más, sólo el número. Si los títulos no entran en un
+  renglón, se nombra el primero y se cuenta el resto («+1»): una línea que se parte en
   tres es peor que un número.
 - **Un renglón en blanco entre bloques.** Sin aire, el tablero se lee como una pared de
-  texto y no se distingue lo de hoy de lo de la semana que viene.
+  texto y no se distingue lo de hoy de lo de la semana que viene. Las líneas de resumen
+  van juntas entre sí: son una sola idea, «lo que puede esperar».
+- **La fecha se muestra donde el encabezado no la dice.** En «Hoy» y «Mañana» sería
+  repetirla, y «Sin fecha» no tiene; en «Esta semana» y «Más adelante» es lo que más
+  importa: «Pagar el ABL» sin el «vie 2/10» no sirve de nada.
 - Lo que no tiene fecha se llama **«Sin fecha»**, no «Algún día»: no es una lista de
   deseos, es el estado de una cosa que todavía no tiene día.
-- **`⋯ Cambiar algo` lista TODO**, incluidas las compras sin fecha y las secciones
-  lejanas. Ninguna cosa queda inaccesible por no tener botón propio.
+- **`⋯ Cambiar algo` lista TODO**, incluidas las compras sin fecha y lo que quedó
+  resumido. Ninguna cosa queda inaccesible por no tener botón propio.
 - El **`↩️ Deshacer`** es una fila que aparece 5 minutos después de tachar o borrar, y
   se va. Antes vivía en el tablero y también como renglón de texto: algo que se queda
   deja de ser una oportunidad y pasa a ser parte del mueble.
