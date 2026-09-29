@@ -570,13 +570,25 @@ También desde el grupo: `/parte`.
 
 ---
 
+## Para entender el proyecto
+
+Tres documentos, según qué necesites:
+
+| | |
+|---|---|
+| [`AGENTS.md`](AGENTS.md) | Cómo está hecha: los principios que no se rompen, el mapa de archivos, las convenciones y **las trampas que ya nos costaron caro**. Empezá por acá si vas a tocar código |
+| [`docs/DISEÑO-v2.md`](docs/DISEÑO-v2.md) | Por qué está hecha así: las máquinas de estados, el esquema de los botones y las decisiones (incluidas las que el uso real nos hizo revertir) |
+| [`docs/PROBAR.md`](docs/PROBAR.md) | Un guion para probarla a mano en un grupo de verdad: qué mandar y qué tiene que pasar |
+
+---
+
 ## Desarrollo local
 
 ```bash
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt pytest
 cp .env.example .env
-pytest                 # 466 tests, sin red ni API keys
+pytest                 # 483 tests, sin red ni API keys
 python app.py          # http://localhost:5000
 ```
 

@@ -54,6 +54,43 @@ texto
 
 No hay ningún camino en el que un texto modifique algo existente.
 
+### El tablero, como quedó
+
+El teclado de Telegram va **abajo del texto**, no intercalado: los botones no
+«pertenecen» visualmente a su sección. Por eso:
+
+- El texto lista las tareas **numeradas**, con la hora, el responsable y la
+  recurrencia; el botón lleva el mismo número. El número es lo que ata las dos cosas.
+- El **✅ se lleva la fila entera**: es lo que más se toca, así que merece un blanco
+  grande y un título legible.
+- El `⋯` de cada tarea no entra en el tablero (sería media fila por tarea): hay un
+  **`⋯ Cambiar algo`** que lista las tareas numeradas para elegir.
+- Si se tachó algo hace poco, aparece **`↩️ Deshacer`** con lo que va a revertir
+  escrito en el texto. Un ✅ mal tocado no tenía vuelta atrás.
+- Cada sección expandida muestra como mucho 25 tareas y ofrece ver el resto: con una
+  fila por tarea, 45 filas son imposibles de usar (y Telegram corta en 100 botones).
+
+### Notas de voz
+
+Entran por la misma puerta que el texto, y por eso heredan todo lo demás:
+
+```
+voice → ¿duration <= NOTITA_AUDIO_SEGUNDOS?   (ANTES de descargar nada)
+      → «🎤 Escuchando el audio…»
+      → telegram.descargar → llm.transcribir  (Ogg/Opus, sin transcodificar)
+      → se borra el aviso
+      → el texto transcripto sigue el flujo normal, con el renglón «🎤 «…»» adelante
+```
+
+Verificado contra la API real antes de construirlo: Gemini transcribe el Ogg/Opus de
+Telegram tal cual, y con ruido o silencio devuelve `NO_SE_ENTIENDE` en vez de
+inventar. El tope de 15 segundos **no es por cuota** (son ~400 tokens) sino por la
+espera: 14 segundos de audio tardaron 20 en transcribirse.
+
+El aviso se borra y la respuesta se manda nueva, en vez de editar el aviso: así la
+respuesta pasa por `telegram.enviar`, que tiene cola de salida. Editando, un fallo la
+perdería.
+
 ### Callback (toque de botón)
 
 ```
@@ -106,6 +143,13 @@ es de la versión anterior").
 | Deshacer | `2\|u\|<id>` | `2\|u\|93` | 7 |
 | Madrugada | `2\|mad\|<id>` | `2\|mad\|93` | 9 |
 | Cerrar | `2\|c` | `2\|c` | 3 |
+| Elegir a cuál abrirle el ⋯ | `2\|elegir` | `2\|elegir` | 9 |
+| Corregir lo recién anotado | `2\|fix\|<id>` | `2\|fix\|93` | 9 |
+| Submenú de responsable | `2\|q+\|<id>` | `2\|q+\|417` | 9 |
+| Publicar el tablero | `2\|tab` | `2\|tab` | 5 |
+| Pasar todas a mañana | `2\|pt` | `2\|pt` | 4 |
+| Confirmar pausa | `2\|pz\|<id>` | `2\|pz\|93` | 8 |
+| Mandar el .ics | `2\|ics\|<id>` | `2\|ics\|417` | 11 |
 
 Los ids son enteros de la base y los slugs vienen de `NOTITA_PERSONAS`. El peor caso
 (un slug largo) queda holgadamente bajo 64 bytes; hay un test que lo verifica para
@@ -184,3 +228,23 @@ Es el único envío programado y el único con notificación.
     modificación.
 12. **Los recados diferidos que haya pendientes al migrar se descartan** (el brief lo
     pide) y se avisa en el mensaje de bienvenida cuántos eran.
+13. **El responsable se descarta si el mensaje no lo dice.** El prompt le cuenta al
+    modelo quién escribió, y a veces deduce que esa persona lo hace: «comprar leche y
+    yerba» quedó como «Leche · al súper · Axel». Se exige evidencia en el texto (el
+    nombre, «los dos», o un «lo hago yo» de quien escribe). Mismo criterio que el
+    corolario de que el LLM no decide sobre datos que existen.
+14. **Los audios vienen prendidos** cuando hay key de Gemini, y se apagan con
+    `NOTITA_AUDIOS=0`. La contrapartida está escrita en la sección de privacidad del
+    README, que cubre texto y audio.
+
+## Lo que el uso real nos hizo cambiar
+
+Estas decisiones estaban escritas acá y las revirtió la realidad. Se dejan anotadas
+porque el error es más útil que la conclusión:
+
+| Decisión original | Qué pasó |
+|---|---|
+| Debounce de 3 segundos en el tablero | El primer ✅ caía dentro de esos 3 segundos y el tablero seguía mostrando la tarea hecha. «Toco y no pasa nada». Ahora se edita siempre |
+| Un `⋯` al lado de cada tarea | Telegram le da media fila y cortaba los títulos al medio. Pasó a ser `⋯ Cambiar algo` |
+| Botones con toda la info (hora, responsable) | No entra. La info va al texto, el botón va corto |
+| Arreglos de esquema dentro de la migración versionada | La migración sale temprano si ya corrió, así que las bases que necesitaban el arreglo no lo recibían. Van sueltos en `init_db` |
