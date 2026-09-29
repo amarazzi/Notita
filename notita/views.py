@@ -91,9 +91,16 @@ def recortar(texto: str, largo: int) -> str:
 
 
 def emoji(row: sqlite3.Row) -> str:
-    """🛒 si tiene la etiqueta; si no, el de la categoría."""
+    """🛒 significa UNA cosa: que tiene la etiqueta. Si no, el de la categoría.
+
+    Pasó de verdad: el modelo devolvió categoría «compras» y `compra=false` para un
+    cemento, y el tablero lo mostraba con 🛒 en «Sin fecha» mientras el botón de
+    Compras no lo contaba. El emoji decía una cosa y el contador otra.
+    """
     if row["compra"]:
         return "🛒"
+    if row["categoria"] == "compras":
+        return config.CATEGORIA_EMOJI["otros"]
     return config.CATEGORIA_EMOJI.get(row["categoria"], "📌")
 
 

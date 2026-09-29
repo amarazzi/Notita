@@ -71,7 +71,9 @@ importa— quedaban abajo, escondidas.
   o dos cosas se nombran («Más adelante: Ir a la sede · dom 4/10»), porque un número
   solo no dice nada; con más, sólo el número, porque cinco títulos tapan lo de hoy.
   Las tres van juntas, sin aire entre ellas: son una sola idea, «lo que no es para hoy
-  ni mañana».
+  ni mañana». Si los títulos no entran en un renglón, se nombra el primero y se cuenta
+  el resto («Sin fecha: 📌 Cemento de doble contacto… +1»): una línea que se parte en
+  tres es peor que un número.
 - **Un renglón en blanco entre bloques.** Sin aire, el tablero se lee como una pared de
   texto y no se distingue lo de hoy de lo de la semana que viene.
 - Lo que no tiene fecha se llama **«Sin fecha»**, no «Algún día»: no es una lista de
@@ -302,4 +304,5 @@ porque el error es más útil que la conclusión:
 | Botones con toda la info (hora, responsable) | No entra. La info va al texto, el botón va corto |
 | Arreglos de esquema dentro de la migración versionada | La migración sale temprano si ya corrió, así que las bases que necesitaban el arreglo no lo recibían. Van sueltos en `init_db` |
 | Cambiar la definición de un índice en el esquema | `CREATE INDEX IF NOT EXISTS` no lo redefine: el viejo sobrevive y bloquea el `DROP COLUMN`. Se borra a mano y el esquema lo recrea |
+| Que dos cosas distintas usen el mismo emoji | La categoría «compras» y la etiqueta 🛒 compartían el carrito: algo con categoría compras y sin etiqueta se veía con 🛒 y no se contaba en Compras. Un símbolo, un significado |
 | Que el tipo de una cosa cambiara **cómo** se guarda | A las compras se les sacaba el verbo, y eso rompía los duplicados y perdía palabras. Ahora 🛒 es sólo una etiqueta |

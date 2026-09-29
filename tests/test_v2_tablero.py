@@ -643,3 +643,47 @@ def test_lo_que_no_tiene_fecha_no_dice_algun_dia(enviados):
 
     assert "<b>Sin fecha:</b>" in texto
     assert "lgún día" not in texto
+
+
+def test_el_carrito_significa_solo_la_etiqueta(enviados):
+    """Pasó de verdad: «🛒 Cemento» en «Sin fecha» y el botón decía «Compras · 2».
+
+    El modelo devolvió categoría «compras» con `compra=false`, y el emoji de la
+    categoría era el mismo carrito: el emoji decía una cosa y el contador otra.
+    """
+    sin_etiqueta = db.crear_tarea(CHAT, "Cemento de doble contacto",
+                                  categoria="compras", due=hoy())
+    con_etiqueta = db.crear_tarea(CHAT, "Falta leche", compra=True, due=hoy())
+
+    texto, filas = tablero.render(CHAT)
+
+    assert "🛒 Cemento" not in texto, "sin la etiqueta no lleva carrito"
+    assert "🛒 Falta leche" in texto
+    assert views.emoji(db.obtener(sin_etiqueta)) == "📌"
+    assert views.emoji(db.obtener(con_etiqueta)) == "🛒"
+    # Y el contador cuenta exactamente lo que lleva carrito.
+    assert any(b["text"] == "🛒 Compras · 1" for fila in filas for b in fila)
+
+
+def test_una_linea_de_resumen_que_no_entra_nombra_la_primera(enviados):
+    """Una línea que se parte en tres renglones es peor que un número."""
+    db.crear_tarea(CHAT, "Cemento de doble contacto para la mesa de la terraza")
+    db.crear_tarea(CHAT, "Arreglar la canilla del lavadero", categoria="arreglos")
+
+    texto, _ = tablero.render(CHAT)
+
+    resumen = [r for r in texto.splitlines() if "Sin fecha:" in r][0]
+    assert "+1" in resumen
+    assert len(resumen) < 80, resumen
+    assert "Arreglar la canilla del lavadero" not in resumen
+
+
+def test_con_dos_cosas_cortas_se_nombran_las_dos(enviados):
+    db.crear_tarea(CHAT, "Regar", categoria="otros")
+    db.crear_tarea(CHAT, "Barrer", categoria="limpieza")
+
+    texto, _ = tablero.render(CHAT)
+
+    resumen = [r for r in texto.splitlines() if "Sin fecha:" in r][0]
+    assert "Regar" in resumen and "Barrer" in resumen
+    assert "+" not in resumen

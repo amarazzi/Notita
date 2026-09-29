@@ -20,6 +20,7 @@ Reglas que valen la pena tener a mano:
 from __future__ import annotations
 
 import logging
+import re
 from datetime import date, timedelta
 
 from . import cb, db, telegram, views
@@ -35,6 +36,9 @@ POR_FILA = 5            # cuántos ✅ por fila
 MAX_NUMERADAS = 10
 # En una línea de resumen entran los títulos si son pocos; si no, sólo el número.
 MAX_EN_RESUMEN = 2
+# Y si los títulos no entran en un renglón, se nombra el primero y se cuenta el resto:
+# una línea que se parte en tres es peor que un número.
+LARGO_RESUMEN = 48
 
 
 def render(chat_id: int, ref: date | None = None) -> tuple[str, list]:
@@ -132,16 +136,27 @@ def _texto_de_las_otras(secciones: dict, ref: date) -> list[str]:
     lineas = []
     for clave in ("semana", "adelante", "algun_dia"):
         rows = secciones[clave]
-        if not rows:
-            continue
-        nombre = _nombre_corto(clave)
-        if len(rows) <= MAX_EN_RESUMEN:
-            detalle = ", ".join(views.linea(r, ref, con_fecha=clave != "algun_dia")
-                                for r in rows)
-            lineas.append(f"<b>{nombre}:</b> {detalle}")
-        else:
-            lineas.append(f"<b>{nombre}:</b> {len(rows)}")
+        if rows:
+            lineas.append(_una_linea(_nombre_corto(clave), rows, ref,
+                                     con_fecha=clave != "algun_dia"))
     return lineas
+
+
+def _una_linea(nombre: str, rows: list, ref: date, con_fecha: bool) -> str:
+    if len(rows) > MAX_EN_RESUMEN:
+        return f"<b>{nombre}:</b> {len(rows)}"
+    detalle = ", ".join(views.linea(r, ref, con_fecha=con_fecha) for r in rows)
+    if _ancho(detalle) <= LARGO_RESUMEN:
+        return f"<b>{nombre}:</b> {detalle}"
+    # No entra en un renglón: se nombra la primera y se cuentan las otras.
+    primera = f"{views.emoji(rows[0])} {views.recortar(views.titulo(rows[0]), 28)}"
+    resto = f" +{len(rows) - 1}" if len(rows) > 1 else ""
+    return f"<b>{nombre}:</b> {primera}{resto}"
+
+
+def _ancho(texto: str) -> int:
+    """Lo que se ve, sin las etiquetas HTML."""
+    return len(re.sub(r"</?[a-z]+>", "", texto))
 
 
 def _botones_de_tachar(numerables: list, numeros: dict) -> list[list[dict]]:
