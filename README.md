@@ -593,7 +593,7 @@ Tres documentos, según qué necesites:
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt pytest
 cp .env.example .env
-pytest                 # 525 tests, sin red ni API keys
+pytest                 # 537 tests, sin red ni API keys
 python app.py          # http://localhost:5000
 ```
 

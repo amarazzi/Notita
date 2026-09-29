@@ -284,16 +284,16 @@ def revisar_base() -> None:
         db.init_db()
         with db.conn() as c:
             filas = c.execute(
-                "SELECT estado, tipo, COUNT(*) n FROM tasks GROUP BY estado, tipo"
+                "SELECT estado, compra, COUNT(*) n FROM tasks GROUP BY estado, compra"
             ).fetchall()
     except sqlite3.Error as e:
         mal(f"no se pudo abrir {config.DB_PATH}: {e}",
             "revisá permisos de escritura en esa carpeta")
         return
     ok(f"{config.DB_PATH} escribible")
-    resumen = {f"{f['estado']}/{f['tipo']}": f["n"] for f in filas}
+    resumen = {f"{f['estado']}{' 🛒' if f['compra'] else ''}": f["n"] for f in filas}
     if resumen:
-        ok("tareas: " + ", ".join(f"{k} {v}" for k, v in sorted(resumen.items())))
+        ok("cosas: " + ", ".join(f"{k} {v}" for k, v in sorted(resumen.items())))
     else:
         ok("base vacía, recién empezando")
 
@@ -303,12 +303,14 @@ def revisar_base() -> None:
         from notita.dates import de_iso, hoy
 
         manana = hoy() + timedelta(days=1)
-        pendientes = db.pendientes(config.ALLOWED_CHAT_ID, tipo="casa")
+        pendientes = db.pendientes(config.ALLOWED_CHAT_ID)
         de_manana = [r for r in pendientes if de_iso(r["due_date"]) == manana]
         atrasadas = [r for r in pendientes
                      if de_iso(r["due_date"]) and de_iso(r["due_date"]) <= hoy()]
+        compras = [r for r in pendientes if r["compra"] and not r["due_date"]]
         ok(f"el parte de hoy va a contar {len(de_manana)} de mañana"
-           + (f" y {len(atrasadas)} sin hacer" if atrasadas else ""))
+           + (f" y {len(atrasadas)} sin hacer" if atrasadas else "")
+           + (f", más {len(compras)} en compras" if compras else ""))
 
 
 def revisar_recordatorios() -> None:
