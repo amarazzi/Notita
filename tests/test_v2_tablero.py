@@ -205,7 +205,7 @@ def test_cada_toque_refresca_el_tablero_al_instante(enviados):
     assert len(ediciones) == 2, "una por toque, sin posponer nada"
     # Ya no está en la lista (abajo aparece como «se puede deshacer»).
     assert "1.</b> 📌 Sacar la basura" not in ediciones[0]
-    assert "Nada para hoy ni mañana" in ediciones[1]
+    assert "No hay nada pendiente" in ediciones[1]
 
 
 def test_si_la_edicion_falla_queda_sucio_y_el_cron_lo_flushea(enviados, monkeypatch):
@@ -450,7 +450,7 @@ def test_el_tablero_vacio_con_algo_para_deshacer(enviados):
 
     texto, filas = tablero.render(CHAT)
 
-    assert "Nada para hoy ni mañana" in texto
+    assert "No hay nada pendiente" in texto
     etiquetas = [b["text"] for fila in filas for b in fila]
     assert etiquetas == ["🛒 Compras · 0", "⋯ Cambiar algo",
                          "↩️ Deshacer: Lo único que había"]
@@ -468,7 +468,7 @@ def test_el_tablero_vacio_tiene_exactamente_dos_botones(enviados):
     assert texto.splitlines() == [
         "📋 <b>La casa</b> · " + views.dia_corto(hoy(), con_mes=True),
         "",
-        "Nada para hoy ni mañana ✨"]
+        "No hay nada pendiente ✨"]
 
 
 def test_ninguna_seccion_aparece_como_boton(enviados):
@@ -483,8 +483,9 @@ def test_ninguna_seccion_aparece_como_boton(enviados):
     for nombre in ("Esta semana", "Más adelante", "Sin fecha", "Vencidas", "Hoy",
                    "Mañana"):
         assert not any(nombre in e for e in etiquetas), f"{nombre} sigue siendo botón"
-    # Pero en el texto sí están, que es donde se leen.
-    assert "Esta semana" in texto and "Sin fecha" in texto
+    # Y tampoco como encabezado: es UNA lista, cada cosa con su fecha en el renglón.
+    assert "Esta semana" not in texto and "Sin fecha" not in texto
+    assert "Pagar el ABL" in texto and "Pintar el balcón" in texto
     assert not any(b["callback_data"].startswith("2|sec")
                    for fila in filas for b in fila)
 
@@ -519,15 +520,6 @@ def test_los_vistos_van_de_a_cinco_por_fila(enviados):
     assert [b["text"] for b in vistos[0]] == ["✅ 1", "✅ 2", "✅ 3", "✅ 4", "✅ 5"]
 
 
-def test_las_secciones_vacias_no_se_muestran(enviados):
-    db.crear_tarea(CHAT, "Sacar la basura", due=hoy())
-
-    texto, _ = tablero.render(CHAT)
-
-    for nombre in ("Esta semana", "Más adelante", "Sin fecha", "Vencidas", "Mañana"):
-        assert nombre not in texto
-
-
 def test_el_deshacer_se_va_a_los_cinco_minutos(enviados, monkeypatch):
     from notita import dates
 
@@ -560,27 +552,6 @@ def test_el_menu_cambiar_algo_lista_todo_lo_que_no_tiene_boton(enviados):
                  for b in fila]
     for cosa in ("Pagar el ABL", "Ir a la sede", "Pintar el balcón", "Falta leche"):
         assert any(cosa in e for e in etiquetas), f"{cosa} quedó inaccesible"
-
-
-def test_los_bloques_se_separan_con_un_renglon_en_blanco(enviados):
-    """Todo pegado se lee como una pared de texto."""
-    db.crear_tarea(CHAT, "Pagar el ABL", due=hoy() - timedelta(days=2), categoria="pagos")
-    db.crear_tarea(CHAT, "Sacar la basura", due=hoy())
-    db.crear_tarea(CHAT, "Llamar al plomero", due=hoy() + timedelta(days=1))
-    db.crear_tarea(CHAT, "Pintar el balcón")
-
-    texto, _ = tablero.render(CHAT)
-    renglones = texto.splitlines()
-
-    def antes_de(marca):
-        i = next(n for n, r in enumerate(renglones) if marca in r)
-        return renglones[i - 1]
-
-    assert antes_de("Vencidas") == "", "aire después del encabezado"
-    assert antes_de("<b>Hoy</b>") == ""
-    assert antes_de("<b>Mañana</b>") == ""
-    assert antes_de("Sin fecha") == ""
-    assert renglones[-1] != "", "sin un renglón en blanco al final"
 
 
 def test_el_carrito_significa_solo_la_etiqueta(enviados):
@@ -618,20 +589,10 @@ def test_lo_que_no_tiene_fecha_se_lista_con_su_boton(enviados):
 
     texto, filas = tablero.render(CHAT)
 
-    assert "<b>Sin fecha</b>" in texto
     assert "1.</b> 🔧 Arreglar la canilla" in texto
     assert "2.</b> 📌 Pintar el balcón" in texto
+    assert "sin fecha" not in texto.lower(), "a lo que no tiene fecha no le falta nada"
     assert [b["text"] for b in filas[0]] == ["✅ 1", "✅ 2"]
-
-
-def test_lo_sin_fecha_va_antes_de_lo_que_tiene_dia_futuro(enviados):
-    db.crear_tarea(CHAT, "Pagar el ABL", due=hoy() + timedelta(days=3), categoria="pagos")
-    db.crear_tarea(CHAT, "Arreglar la canilla", categoria="arreglos")
-
-    texto, _ = tablero.render(CHAT)
-    renglones = texto.splitlines()
-
-    assert renglones.index("<b>Sin fecha</b>") < renglones.index("<b>Esta semana</b>")
 
 
 def test_con_la_casa_tranquila_se_lista_todo(enviados):
@@ -667,9 +628,9 @@ def test_con_la_casa_desbordada_se_resume_desde_el_final(enviados):
     texto, filas = tablero.render(CHAT)
 
     vistos = [b["text"] for fila in filas for b in fila if b["text"].startswith("✅")]
-    assert len(vistos) == 12, "hoy, mañana y sin fecha"
-    assert "<b>Esta semana:</b> 4" in texto, "la semana se resume"
-    assert "De la semana 0" not in texto
+    assert len(vistos) == 15, "el tope"
+    assert "y 1 más: Esta semana 1" in texto
+    assert "De la semana 3" not in texto
 
 
 def test_las_secciones_futuras_muestran_el_dia(enviados):
@@ -682,11 +643,54 @@ def test_las_secciones_futuras_muestran_el_dia(enviados):
     assert views.dia_corto(hoy() + timedelta(days=3), con_mes=True) in texto
 
 
-def test_lo_de_hoy_y_mañana_no_repite_el_dia(enviados):
-    """El encabezado ya lo dice."""
-    db.crear_tarea(CHAT, "Sacar la basura", due=hoy())
+
+def test_es_una_sola_lista_sin_encabezados(enviados):
+    """Con encabezados por día se leía como una agenda, y lo que no tenía fecha
+
+    parecía de otra categoría. Es una cosa para hacer como cualquier otra.
+    """
+    db.crear_tarea(CHAT, "Agarrar sábanas", due=hoy() - timedelta(days=2))
+    db.crear_tarea(CHAT, "Traer las llaves", due=hoy())
+    db.crear_tarea(CHAT, "Llevar a Milo", due=hoy() + timedelta(days=1))
+    db.crear_tarea(CHAT, "Arreglar la canilla")
+    db.crear_tarea(CHAT, "Pagar el ABL", due=hoy() + timedelta(days=3))
+
+    texto, _ = tablero.render(CHAT)
+    renglones = texto.splitlines()
+
+    for encabezado in ("Vencidas", "Hoy", "Mañana", "Sin fecha", "Esta semana",
+                       "Más adelante", "Nada para hoy"):
+        assert encabezado not in texto, encabezado
+    # Encabezado, aire, y los cinco renglones seguidos. Nada más.
+    assert len(renglones) == 7
+    assert renglones[1] == ""
+    assert all(r.startswith("<b>") and ".</b> " in r for r in renglones[2:])
+
+
+def test_cada_renglon_lleva_su_fecha(enviados):
+    db.crear_tarea(CHAT, "Agarrar sábanas", due=hoy() - timedelta(days=2))
+    db.crear_tarea(CHAT, "Traer las llaves", due=hoy(), hora="10:00")
+    db.crear_tarea(CHAT, "Llevar a Milo", due=hoy() + timedelta(days=1), hora="18:00")
+    db.crear_tarea(CHAT, "Arreglar la canilla")
+    db.crear_tarea(CHAT, "Pagar el ABL", due=hoy() + timedelta(days=3))
+
+    texto, _ = tablero.render(CHAT)
+    renglon = {c: [r for r in texto.splitlines() if c in r][0]
+               for c in ("sábanas", "llaves", "Milo", "canilla", "ABL")}
+
+    assert "venció el" in renglon["sábanas"]
+    assert "hoy" in renglon["llaves"] and "🕕 10:00" in renglon["llaves"]
+    assert "mañana" in renglon["Milo"] and "🕕 18:00" in renglon["Milo"]
+    assert views.dia_corto(hoy() + timedelta(days=3), con_mes=True) in renglon["ABL"]
+    # Y la que no tiene fecha no dice nada de fecha.
+    assert renglon["canilla"].endswith("Arreglar la canilla")
+
+
+def test_la_hora_va_aparte_y_con_el_reloj(enviados):
+    """Pegada a la fecha quedaba «mañana, mié 30 18:00»: un número suelto."""
+    db.crear_tarea(CHAT, "Llevar a Milo", due=hoy() + timedelta(days=1), hora="18:00")
 
     texto, _ = tablero.render(CHAT)
 
-    renglon = [r for r in texto.splitlines() if "Sacar la basura" in r][0]
-    assert "hoy" not in renglon.lower()
+    assert "· <i>🕕 18:00</i>" in texto
+    assert "30 18:00" not in texto

@@ -20,7 +20,6 @@ Reglas que valen la pena tener a mano:
 from __future__ import annotations
 
 import logging
-import re
 from datetime import date, timedelta
 
 from . import cb, db, telegram, views
@@ -45,11 +44,6 @@ MAX_NUMERADAS = 15
 # fecha va a aparecer solo cuando llegue su día, y algo sin fecha no aparece nunca si
 # no se lista. Puesto como número en un resumen, se podre ahí para siempre.
 PRIORIDAD = ("vencidas", "hoy", "manana", "algun_dia", "semana", "adelante")
-# En una línea de resumen entran los títulos si son pocos; si no, sólo el número.
-MAX_EN_RESUMEN = 2
-# Y si los títulos no entran en un renglón, se nombra el primero y se cuenta el resto:
-# una línea que se parte en tres es peor que un número.
-LARGO_RESUMEN = 48
 
 
 def render(chat_id: int, ref: date | None = None) -> tuple[str, list]:
@@ -61,22 +55,26 @@ def render(chat_id: int, ref: date | None = None) -> tuple[str, list]:
     compras = [r for r in cosas if r["compra"]]
     secciones = repartir(cosas, ref)
 
-    listadas = _listadas(secciones)
-    numerables = [r for clave in listadas for r in secciones[clave]]
+    # UNA lista, sin secciones. Cada cosa lleva su fecha en el renglón si la tiene.
+    # Con encabezados por día, el tablero se leía como una agenda y lo que no tenía
+    # fecha parecía de otra categoría, cuando es una cosa para hacer como cualquier
+    # otra.
+    en_orden = [r for clave in PRIORIDAD for r in secciones[clave]]
+    numerables = en_orden[:MAX_NUMERADAS]
+    sobrantes = en_orden[MAX_NUMERADAS:]
     numeros = {r["id"]: i for i, r in enumerate(numerables, start=1)}
 
-    # Los bloques se separan con un renglón en blanco (el tablero apretado se lee
-    # como una pared de texto), pero las líneas de resumen van juntas entre sí: son
-    # una sola idea, «lo que puede esperar».
     bloques = [[f"📋 <b>La casa</b> · {views.dia_corto(ref, con_mes=True)}"]]
-    bloques += _bloques_listados(secciones, listadas, numeros, ref)
-    resumen = _texto_de_las_otras(secciones, listadas, ref)
-    if resumen:
-        bloques.append(resumen)
+    if numerables:
+        bloques.append([_renglon(r, numeros, ref) for r in numerables])
+    else:
+        bloques.append(["No hay nada pendiente ✨"])
+    if sobrantes:
+        bloques.append(_linea_del_resto(sobrantes, secciones))
     lineas = []
     for bloque in bloques:
         if lineas:
-            lineas.append("")
+            lineas.append("")      # aire entre bloques, no dentro de la lista
         lineas += bloque
 
     filas = _botones_de_tachar(numerables, numeros)
@@ -97,91 +95,37 @@ def render(chat_id: int, ref: date | None = None) -> tuple[str, list]:
     return texto, filas
 
 
-def _listadas(secciones: dict) -> list[str]:
-    """Qué secciones se listan una por una (con número y ✅) y cuáles se resumen.
 
-    Se lista todo lo que entre, en orden de prioridad; lo que sobra se cae del final.
-    Con la casa tranquila eso es TODO: el tablero es una lista de cosas para hacer,
-    no una agenda.
+
+
+
+def _renglon(row, numeros: dict, ref: date) -> str:
+    """«3. 🐾 Llevar a Milo al veterinario · mañana, mié 30 🕕 18:00 · Barbu».
+
+    La fecha va en el renglón sólo si la cosa tiene: a lo que no tiene no le falta
+    nada, así que no dice «sin fecha».
     """
-    claves = list(PRIORIDAD)
-    while len(claves) > 2 and sum(len(secciones[c]) for c in claves) > MAX_NUMERADAS:
-        claves.pop()        # primero se caen las que tienen día futuro
-    return claves
-
-
-def _bloques_listados(secciones: dict, listadas: list[str], numeros: dict,
-                      ref: date) -> list[list[str]]:
-    """Un bloque por sección listada, así queda un renglón en blanco entre medio."""
-    bloques = []
-    if not secciones["hoy"] and not secciones["manana"]:
-        bloques.append(["Nada para hoy ni mañana ✨"])
-    for clave in listadas:
-        rows = secciones[clave]
-        if not rows:
-            continue
-        bloques.append([_encabezado(clave, ref)]
-                       + [_renglon(r, numeros, ref, con_fecha=_lleva_fecha(clave))
-                          for r in rows])
-    return bloques
-
-
-def _lleva_fecha(clave: str) -> bool:
-    """El día se muestra cuando el encabezado no lo dice.
-
-    «Hoy» y «Mañana» ya lo dicen, y «Sin fecha» no tiene. En las otras es lo que más
-    importa: «Pagar el ABL» sin el «vie 2/10» no sirve de nada.
-    """
-    return clave in ("vencidas", "semana", "adelante")
-
-
-def _encabezado(clave: str, ref: date) -> str:
-    if clave == "vencidas":
-        return "⚠️ <b>Vencidas</b>"
-    if clave == "hoy":
-        return "<b>Hoy</b>"                 # la fecha ya está en el encabezado
-    if clave == "manana":
-        return f"<b>Mañana</b> · {views.dia_corto(ref + timedelta(days=1))}"
-    return f"<b>{_nombre_corto(clave)}</b>"
-
-
-def _renglon(row, numeros: dict, ref: date, con_fecha: bool = False) -> str:
-    """«3. 🧽 Limpiar la heladera · 🕕 10:00 · Axel»."""
     numero = numeros.get(row["id"])
     cabeza = f"<b>{numero}.</b> " if numero else "· "
-    return cabeza + views.linea(row, ref, con_fecha=con_fecha)
+    return cabeza + views.linea(row, ref, con_fecha=bool(row["due_date"]))
 
 
-def _texto_de_las_otras(secciones: dict, listadas: list[str], ref: date) -> list[str]:
-    """Una línea por sección que no se listó, sin botón. Con pocas cosas, se nombran.
+def _linea_del_resto(sobrantes: list, secciones: dict) -> list[str]:
+    """«y 5 más: Esta semana 4 · Más adelante 1», cuando no entra todo.
 
-    Un número solo («Más adelante: 5») no dice nada; el nombre de la única cosa que
-    hay, sí. Pero cinco títulos tapan lo de hoy, así que ahí sólo va el número.
+    Se resume por cuándo es, que es lo único que importa de algo que no se está
+    mostrando. Todo eso sigue accesible por «⋯ Cambiar algo».
     """
-    lineas = []
+    ids = {r["id"] for r in sobrantes}
+    partes = []
     for clave in PRIORIDAD:
-        rows = secciones[clave]
-        if rows and clave not in listadas:
-            lineas.append(_una_linea(_nombre_corto(clave), rows, ref,
-                                     con_fecha=clave != "algun_dia"))
-    return lineas
+        cuantas = sum(1 for r in secciones[clave] if r["id"] in ids)
+        if cuantas:
+            partes.append(f"{_nombre_corto(clave)} {cuantas}")
+    return [f"<i>y {len(sobrantes)} más: {' · '.join(partes)}</i>"]
 
 
-def _una_linea(nombre: str, rows: list, ref: date, con_fecha: bool) -> str:
-    if len(rows) > MAX_EN_RESUMEN:
-        return f"<b>{nombre}:</b> {len(rows)}"
-    detalle = ", ".join(views.linea(r, ref, con_fecha=con_fecha) for r in rows)
-    if _ancho(detalle) <= LARGO_RESUMEN:
-        return f"<b>{nombre}:</b> {detalle}"
-    # No entra en un renglón: se nombra la primera y se cuentan las otras.
-    primera = f"{views.emoji(rows[0])} {views.recortar(views.titulo(rows[0]), 28)}"
-    resto = f" +{len(rows) - 1}" if len(rows) > 1 else ""
-    return f"<b>{nombre}:</b> {primera}{resto}"
 
-
-def _ancho(texto: str) -> int:
-    """Lo que se ve, sin las etiquetas HTML."""
-    return len(re.sub(r"</?[a-z]+>", "", texto))
 
 
 def _botones_de_tachar(numerables: list, numeros: dict) -> list[list[dict]]:

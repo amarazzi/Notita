@@ -46,27 +46,22 @@ El **tablero** es un mensaje fijado en el grupo que se edita en el lugar:
 ```
 📋 La casa · lun 28/9
 
-⚠️ Vencidas
 1. 🧽 Agarrar sábanas y acolchado · venció el sáb 26/9
-
-Hoy
-2. 🐾 Llevar a Milo al veterinario · 🕕 18:00 · Barbu
-3. 🛒 Falta carbón para el asado
-
-Sin fecha
-4. 🔧 Arreglar la canilla
-
-Esta semana
+2. 🐾 Llevar a Milo al veterinario · hoy, lun 28 · 🕕 18:00 · Barbu
+3. 🔧 Arreglar la canilla
+4. 🛒 Falta carbón para el asado · mañana, mar 29
 5. 💸 Pagar el ABL · vie 2/10
 
 [ ✅ 1 ] [ ✅ 2 ] [ ✅ 3 ] [ ✅ 4 ] [ ✅ 5 ]
 [ 🛒 Compras · 5 ] [ ⋯ Cambiar algo ]
 ```
 
-**Es una lista de cosas para hacer, no una agenda.** El orden no es el del calendario:
-es cuánto te está pidiendo atención, y **lo que no tiene fecha se lista igual** —si
-quedara como un número, se podriría ahí para siempre—. El texto es para leer y los
-botones sólo para hacer: el número ata el renglón con su `✅`.
+**Es una lista de cosas para hacer, no una agenda.** Una sola lista, sin secciones: el
+orden no es el del calendario sino cuánto te está pidiendo atención —vencidas, hoy,
+mañana, sin fecha, el resto—, y **cada cosa lleva su fecha en el renglón** si la tiene.
+Lo que no tiene fecha se lista igual: si quedara como un número, se podriría ahí para
+siempre. El texto es para leer y los botones sólo para hacer: el número ata el renglón
+con su `✅`.
 
 
 Hay **una sola clase de cosa**. La 🛒 es una etiqueta para filtrar: lo que tiene fecha
@@ -77,9 +72,9 @@ una por una. El botón cuenta **todo lo etiquetado**, igual que `/compras`.
 - **⋯ Cambiar algo** lista **todas** las cosas para elegir cuál: mover de día, quién la
   hace, renombrar, marcarla como compra 🛒, borrarla o agregarla al calendario.
 - Si tachás algo sin querer, aparece **↩️ Deshacer** en el tablero por 5 minutos.
-- Se listan hasta 15 cosas; con la casa tranquila, eso es **todo**. Si se desborda, lo
-  que tiene día futuro se resume en una línea («Más adelante: 5») y se cambia desde el
-  `⋯`: eso va a volver solo cuando llegue su día.
+- Se listan hasta 15 cosas; con la casa tranquila, eso es **todo**. Si se desborda, el
+  resto se cuenta en una línea («y 3 más: Esta semana 2 · Más adelante 1») y se maneja
+  desde el `⋯`: lo que tiene día va a volver solo cuando llegue.
 - Los menús se abren en un mensaje **aparte**, así lo que toca uno no le cambia la
   pantalla al otro.
 
@@ -599,7 +594,7 @@ Tres documentos, según qué necesites:
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt pytest
 cp .env.example .env
-pytest                 # 552 tests, sin red ni API keys
+pytest                 # 551 tests, sin red ni API keys
 python app.py          # http://localhost:5000
 ```
 

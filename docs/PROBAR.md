@@ -44,7 +44,7 @@ mensaje, y `✏️ Corregir` abre el menú del ítem.
 
 | # | Hacé | Tiene que pasar |
 |---|---|---|
-| 2.1 | Mirá el tablero | Cada cosa aparece **una sola vez**. Vencidas, hoy y mañana listadas y numeradas; el resto, una línea de texto sin botón |
+| 2.1 | Mirá el tablero | **Una sola lista** numerada, sin secciones. Cada cosa una vez, con su fecha en el renglón si la tiene |
 | 2.1b | Contá los botones | Los `✅ N` (de a 5 por fila), `🛒 Compras · N`, `⋯ Cambiar algo`. **Nada más**: las secciones no son botones |
 | 2.2 | Tocá un `✅` | La tarea desaparece del tablero **al instante**, sin mensajes nuevos en el grupo |
 | 2.3 | Mirá abajo del tablero | Apareció `↩️ Deshacer` diciendo **qué** va a deshacer. A los 5 minutos se va |

@@ -126,9 +126,11 @@ def linea(row: sqlite3.Row, ref: date | None = None, con_fecha: bool = True) -> 
     partes = [f"{emoji(row)} {titulo_html(row)}"]
     d = de_iso(row["due_date"])
     if con_fecha and not (row["compra"] and d is None):
-        # Una compra sin fecha no dice «algún día»: no le falta nada.
-        partes.append(f"<i>{cuando(d, row['due_hora'], ref)}</i>")
-    elif row["due_hora"]:
+        # Una compra sin fecha no dice «sin fecha»: no le falta nada.
+        partes.append(f"<i>{cuando(d, None, ref)}</i>")
+    # La hora va aparte y con el reloj: pegada a la fecha quedaba «mañana, mié 30
+    # 18:00», que se lee como un número suelto.
+    if row["due_hora"]:
         partes.append(f"<i>🕕 {row['due_hora']}</i>")
     resp = sufijo_responsable(row)
     if resp:
