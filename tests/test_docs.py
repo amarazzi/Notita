@@ -114,3 +114,26 @@ def test_el_ci_revisa_todos_los_scripts_y_ninguno_que_no_exista():
         assert (RAIZ / destino).exists(), f"el CI revisa {destino}, que no existe"
     for script in RAIZ.glob("*.py"):
         assert script.name in revisados, f"el CI no revisa {script.name}"
+
+
+def test_los_respaldos_de_la_base_estan_ignorados():
+    """El repo es público y los respaldos tienen las tareas de la casa adentro.
+
+    `*.db` no alcanza: el nombre termina en `.bak`
+    (`notita.db.antes-de-v3.2026-09-29.bak`).
+    """
+    import fnmatch
+
+    from notita import config, db
+
+    patrones = [linea.strip() for linea in
+                (RAIZ / ".gitignore").read_text(encoding="utf-8").splitlines()
+                if linea.strip() and not linea.startswith("#")]
+
+    nombres = [db._nombre_de_respaldo(pathlib.Path(config.DB_PATH), "v9").name,
+               db._nombre_de_respaldo(pathlib.Path(config.DB_PATH), "limpiar").name,
+               "notita.db.v1.bak",
+               "notita.db.antes-de-mudarse.bak",
+               "notita.db"]
+    for nombre in nombres:
+        assert any(fnmatch.fnmatch(nombre, p) for p in patrones), nombre

@@ -9,3 +9,9 @@ venv/
 # Backups del .env: tienen los mismos secretos adentro
 .env.bak
 .env*.bak
+
+# Respaldos de la base: tienen las tareas de la casa adentro y el repo es público.
+# `*.db` no los cubre porque el nombre termina en .bak
+# (notita.db.antes-de-v3.2026-09-29.bak).
+*.bak
+*.db.*
